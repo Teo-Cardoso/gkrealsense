@@ -61,7 +61,7 @@ class RealSenseHandler:
         self.depth_sensor = self.profile.get_device().first_depth_sensor()
         self.depth_sensor.set_option(rs.option.laser_power, cam_config.laser_power)
 
-        VISUAL_PRESET_HIGH_ACCURACY = 5
+        VISUAL_PRESET_HIGH_ACCURACY = 3
         self.depth_sensor.set_option(
             rs.option.visual_preset, VISUAL_PRESET_HIGH_ACCURACY
         )
