@@ -84,7 +84,7 @@ class RealSenseHandler:
 
         self.frames_number: FramesNumber = FramesNumber()
         self.last_time: int = time.perf_counter_ns()
-        self.align = rs.align(rs.stream.color)
+        self.align = rs.align(rs.stream.depth)
 
     def __del__(self):
         self.pipeline.stop()
