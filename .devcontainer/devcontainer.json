@@ -1,0 +1,39 @@
+{
+    "name": "GoalKeeper RealSense DevContainer",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "args": {
+            "REMOTE_USER": "${localEnv:USER}",
+            "REMOTE_UID": "${localEnv:REMOTE_UID:1000}",
+            "REMOTE_GID": "${localEnv:REMOTE_GID:1000}"
+        }
+    },
+    "settings": {
+        "terminal.integrated.shell.linux": "/bin/bash"
+    },
+    "extensions": [
+        "ms-vscode.cpptools",
+        "ms-python.python",
+        "ms-python.autopep8",
+        "ms-python.debugpy",
+        "ms-python.vscode-pylance",
+        "mhutchie.git-graph",
+    ],
+    "mounts": [
+        "source=${localWorkspaceFolder}/,target=/workspace,type=bind",
+        "source=/dev,target=/dev,type=bind"
+    ],
+    "postCreateCommand": "",
+    "remoteUser": "${localEnv:USER}",
+    "runArgs": [
+        "--network=host",
+        "--env=DISPLAY=${env:DISPLAY}",
+        "--volume=/tmp/.X11-unix:/tmp/.X11-unix",
+        "--volume=${localEnv:HOME}/.bash_history:/root/.bash_history",
+        "--env=QT_X11_NO_MITSHM=1",
+        "--privileged",
+        "--runtime=nvidia",
+        "--gpus=all"
+    ],
+    "initializeCommand": "xhost +local:docker"
+}
