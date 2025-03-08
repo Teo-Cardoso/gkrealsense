@@ -7,6 +7,7 @@ import time
 @dataclass
 class RealSenseConfig:
     """Dataclass to store RealSense configuration"""
+
     width: int = 848
     height: int = 480
     depth_fps: int = 90
@@ -32,30 +33,54 @@ class RealSenseHandler:
     def __init__(self, cam_config: RealSenseConfig):
         config = rs.config()
 
-        config.enable_stream(rs.stream.depth, cam_config.width,
-                             cam_config.height, rs.format.z16, cam_config.depth_fps)
-        config.enable_stream(rs.stream.infrared, cam_config.width,
-                             cam_config.height, rs.format.y8, cam_config.depth_fps)
-        config.enable_stream(rs.stream.color, cam_config.width,
-                             cam_config.height, rs.format.bgr8, cam_config.rgb_fps)
+        config.enable_stream(
+            rs.stream.depth,
+            cam_config.width,
+            cam_config.height,
+            rs.format.z16,
+            cam_config.depth_fps,
+        )
+        config.enable_stream(
+            rs.stream.infrared,
+            cam_config.width,
+            cam_config.height,
+            rs.format.y8,
+            cam_config.depth_fps,
+        )
+        config.enable_stream(
+            rs.stream.color,
+            cam_config.width,
+            cam_config.height,
+            rs.format.bgr8,
+            cam_config.rgb_fps,
+        )
 
         self.pipeline = rs.pipeline()
         self.profile = self.pipeline.start(config)
 
         self.depth_sensor = self.profile.get_device().first_depth_sensor()
-        self.depth_sensor.set_option(
-            rs.option.laser_power, cam_config.laser_power)
+        self.depth_sensor.set_option(rs.option.laser_power, cam_config.laser_power)
 
         VISUAL_PRESET_HIGH_ACCURACY = 5
         self.depth_sensor.set_option(
-            rs.option.visual_preset, VISUAL_PRESET_HIGH_ACCURACY)
+            rs.option.visual_preset, VISUAL_PRESET_HIGH_ACCURACY
+        )
 
-        self.depth_intrinsics = self.profile.get_stream(
-            rs.stream.depth).as_video_stream_profile().get_intrinsics()
-        self.color_intrinsics = self.profile.get_stream(
-            rs.stream.color).as_video_stream_profile().get_intrinsics()
-        self.ir_intrinsics = self.profile.get_stream(
-            rs.stream.infrared).as_video_stream_profile().get_intrinsics()
+        self.depth_intrinsics = (
+            self.profile.get_stream(rs.stream.depth)
+            .as_video_stream_profile()
+            .get_intrinsics()
+        )
+        self.color_intrinsics = (
+            self.profile.get_stream(rs.stream.color)
+            .as_video_stream_profile()
+            .get_intrinsics()
+        )
+        self.ir_intrinsics = (
+            self.profile.get_stream(rs.stream.infrared)
+            .as_video_stream_profile()
+            .get_intrinsics()
+        )
 
         self.frames_number: FramesNumber = FramesNumber()
         self.last_time: int = time.perf_counter_ns()
@@ -68,9 +93,13 @@ class RealSenseHandler:
         """Get frames from RealSense camera"""
         frames = self.pipeline.wait_for_frames()
         color_frame = frames.get_color_frame()
-        repeated_color_frame: bool = self.frames_number.color == color_frame.get_frame_number()
+        repeated_color_frame: bool = (
+            self.frames_number.color == color_frame.get_frame_number()
+        )
 
-        result_type = FramesMix.DEPTH_INFRARED if repeated_color_frame else FramesMix.DEPTH_COLOR
+        result_type = (
+            FramesMix.DEPTH_INFRARED if repeated_color_frame else FramesMix.DEPTH_COLOR
+        )
         match result_type:
             case FramesMix.DEPTH_COLOR:
                 self.frames_number.color = color_frame.get_frame_number()
