@@ -61,7 +61,10 @@ class RealSenseHandler:
         self.last_time: int = time.perf_counter_ns()
         self.align = rs.align(rs.stream.color)
 
-    def get_frames(self) -> tuple[FramesMix, rs.frame, rs.frame]:
+    def __del__(self):
+        self.pipeline.stop()
+
+    def get_frames(self) -> tuple[FramesMix, rs.depth_frame, rs.frame]:
         """Get frames from RealSense camera"""
         frames = self.pipeline.wait_for_frames()
         color_frame = frames.get_color_frame()
