@@ -10,7 +10,7 @@ class RealSenseConfig:
 
     width: int = 848
     height: int = 480
-    depth_fps: int = 90
+    depth_fps: int = 60
     rgb_fps: int = 60  # We have to use 60fps to ensure depth 90fps
     laser_power: int = 360
 
@@ -40,13 +40,13 @@ class RealSenseHandler:
             rs.format.z16,
             cam_config.depth_fps,
         )
-        config.enable_stream(
-            rs.stream.infrared,
-            cam_config.width,
-            cam_config.height,
-            rs.format.y8,
-            cam_config.depth_fps,
-        )
+        # config.enable_stream(
+        #     rs.stream.infrared,
+        #     cam_config.width,
+        #     cam_config.height,
+        #     rs.format.y8,
+        #     cam_config.depth_fps,
+        # )
         config.enable_stream(
             rs.stream.color,
             cam_config.width,
@@ -76,21 +76,22 @@ class RealSenseHandler:
             .as_video_stream_profile()
             .get_intrinsics()
         )
-        self.ir_intrinsics = (
-            self.profile.get_stream(rs.stream.infrared)
-            .as_video_stream_profile()
-            .get_intrinsics()
-        )
+        # self.ir_intrinsics = (
+        #     self.profile.get_stream(rs.stream.infrared)
+        #     .as_video_stream_profile()
+        #     .get_intrinsics()
+        # )
 
         self.frames_number: FramesNumber = FramesNumber()
         self.last_time: int = time.perf_counter_ns()
-        self.align = rs.align(rs.stream.depth)
+        self.align = rs.align(rs.stream.color)
 
     def __del__(self):
         self.pipeline.stop()
 
-    def get_frames(self) -> tuple[FramesMix, rs.depth_frame, rs.frame]:
+    def get_frames(self) -> tuple[int, FramesMix, rs.depth_frame, rs.frame]:
         """Get frames from RealSense camera"""
+        # TO DO: Add a check for repeated depth_frame, current depth frame must be different from the last frame
         frames = self.pipeline.wait_for_frames()
         color_frame = frames.get_color_frame()
         repeated_color_frame: bool = (
@@ -100,6 +101,7 @@ class RealSenseHandler:
         result_type = (
             FramesMix.DEPTH_INFRARED if repeated_color_frame else FramesMix.DEPTH_COLOR
         )
+        result_type = FramesMix.DEPTH_COLOR
         match result_type:
             case FramesMix.DEPTH_COLOR:
                 self.frames_number.color = color_frame.get_frame_number()
@@ -115,4 +117,4 @@ class RealSenseHandler:
 
         self.frames_number.depth = depth_frame.get_frame_number()
         self.last_time = time.perf_counter_ns()
-        return result_type, depth_frame, second_frame
+        return self.last_time, result_type, depth_frame, second_frame

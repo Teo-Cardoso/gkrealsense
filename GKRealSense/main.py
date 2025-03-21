@@ -1,34 +1,74 @@
 from realsense_handler import RealSenseHandler, RealSenseConfig, FramesMix
-from object_detector import ObjectDetector, DetectedObject
-from object_pose_estimator import ObjectPoseEstimator, ObjectWithPose
+from object_detector import ObjectDetector, DetectedObject, ObjectType
+from object_pose_estimator import ObjectPoseEstimator, ObjectWithPosition
+from object_tracker import ObjectTracker
 
 import cv2
 import numpy as np
 import time
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 
 def main():
     realsense = RealSenseHandler(RealSenseConfig())
-    obj_detector = ObjectDetector(color_model_name="", ir_model_name="")
+    obj_detector = ObjectDetector(
+        color_model_name="/workspaces/neno_ws/best_with_lines.pt",
+        ir_model_name="/workspaces/neno_ws/best_300ep.pt",
+    )
     obj_pose_estimator = ObjectPoseEstimator(
         realsense.depth_intrinsics,
         color_intrinsics=realsense.color_intrinsics,
-        ir_intrinsics=realsense.ir_intrinsics,
+        ir_intrinsics=realsense.color_intrinsics,
     )
+
+    obj_tracker = ObjectTracker()
 
     frame_count: int = 0
     start_time = time.perf_counter()
+    first_timestamp = start_time
+    timestamps_vel = []
+    velocity_x = []
+    velocity_y = []
+    velocity_z = []
+
+    plt.ion()
+    fig, axes = plt.subplots(3, 1, figsize=(8, 8), sharex=True)  # 3 rows, 1 column
+    axes[0].set_title("Velocity Components Over Time")
+    axes[0].set_ylabel("Vx (m/s)")
+    axes[1].set_ylabel("Vy (m/s)")
+    axes[2].set_ylabel("Vz (m/s)")
+    
+    line_vx, = axes[0].plot([], [], 'r-', label="Vx")  # Red line
+    line_vy, = axes[1].plot([], [], 'g-', label="Vy")  # Green line
+    line_vz, = axes[2].plot([], [], 'b-', label="Vz")  # Blue line
+    axes[2].set_xlabel("Time (s)")
+
+
     while True:
-        frames_mix, depth_frame, second_frame = realsense.get_frames()
+        start_time = time.perf_counter()
+        timestamp, frames_mix, depth_frame, second_frame = realsense.get_frames()
+
         second_image = np.asanyarray(second_frame.get_data())
         if frames_mix == FramesMix.DEPTH_INFRARED:
             second_image = cv2.cvtColor(second_image, cv2.COLOR_GRAY2BGR)
 
         result: list[DetectedObject] = obj_detector.detect(frames_mix, second_image)
-        result_pose: list[ObjectWithPose] = obj_pose_estimator.estimate_pose(
+        result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
             depth_frame, result
         )
 
+        track_result = obj_tracker.track([(timestamp, result_pose)])
+        for track in track_result:
+            if track.objectStatus.object_type == ObjectType.BLUE:
+                timestamps_vel.append(timestamp - first_timestamp)
+                velocity_x.append(track.kalmanFilter.x[0])
+                velocity_y.append(track.kalmanFilter.x[1])
+                velocity_z.append(track.kalmanFilter.x[2])
+                break
+        
         for obj_index in range(len(result)):
             x1, y1, x2, y2 = result[obj_index].box
             cv2.circle(
@@ -50,7 +90,7 @@ def main():
                 2,
             )
 
-            x, y, z = list(result_pose[obj_index].pose)[0]
+            x, y, z = list(result_pose[obj_index].position)[0]
             cv2.putText(
                 second_image,
                 f"{x:.2f}, {y:.2f}, {z:.2f}",
@@ -75,8 +115,22 @@ def main():
             start_time = time.perf_counter()
             print(f"FPS: {fps:.2f}")
 
-        cv2.waitKey(1)
+        key = cv2.waitKey(1)
+        if key == ord('q'):
+            line_vx.set_data(timestamps_vel, velocity_x)
+            line_vy.set_data(timestamps_vel, velocity_y)
+            line_vz.set_data(timestamps_vel, velocity_z)
+
+            for ax in axes:
+                ax.relim()
+                ax.autoscale_view()
+    
+            plt.draw()  # Redraw the plot
+    
+            break
 
 
 if __name__ == "__main__":
     main()
+    plt.savefig("img.png")
+    plt.ioff()

@@ -1,3 +1,12 @@
+"""
+Object Detector Module
+This module is responsible for detecting objects in the frame.
+It uses YOLO model to detect objects.
+It has two models: one for color and one for infrared.
+It can detect objects of the following types: ball, red, blue, robot, person.
+It returns a list of DetectedObject.
+"""
+
 from realsense_handler import FramesMix
 
 import ultralytics
@@ -20,7 +29,8 @@ class DetectedObject:
 
     type: ObjectType
     confidence: float
-    box: tuple[int, int, int, int]
+    # The Box is a tuple of 4 integers: x1, y1, x2, y2
+    box: tuple[int, int, int, int]  # TO THINK: Should we create a type for this?
 
 
 class ObjectDetector:
@@ -37,6 +47,7 @@ class ObjectDetector:
         self.ir_classes = [ObjectType.BALL, ObjectType.PERSON, ObjectType.ROBOT]
 
     def _get_class(self, using_color: bool, class_id: int) -> ObjectType:
+        # TO FIX: Fix the index to match correctly with the correct class
         if using_color:
             return self.color_classes[min(class_id, 2)]
         else:
