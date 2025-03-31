@@ -69,6 +69,7 @@ class ObjectTracker:
                 to_delete.append(index)
 
         # Clear the untrustworthy objects
+        # TO FIX: This is not the best way to delete objects from the list
         for index in to_delete:
             self.tracked_objects.pop(index)
 

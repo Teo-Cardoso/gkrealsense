@@ -74,7 +74,7 @@ class ObjectDetector:
             conf=0.5,
             verbose=False,
             device=0,
-            half=True,
+            half=False,
             int8=False,
             agnostic_nms=True,
             imgsz=640,
@@ -85,9 +85,12 @@ class ObjectDetector:
         for result_index in range(result_size):
             result_data: list[float] = results[result_index].boxes.data.tolist()
 
-            if len(result_data) > 0:
+            if len(result_data) == 0:
+                continue
+
+            for result in result_data:
                 detected_objects.append(
-                    self._map_result_to_object(source_type, result_data[0])
+                    self._map_result_to_object(source_type, result)
                 )
 
         return detected_objects
