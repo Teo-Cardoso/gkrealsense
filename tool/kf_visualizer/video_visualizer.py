@@ -1,11 +1,11 @@
 import re
-import time
 import tkinter as tk
 from tkinter import filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.proj3d import proj_transform
 from PIL import Image, ImageTk
 import numpy as np
 import io
@@ -50,12 +50,13 @@ class KalmanPlotter:
     def __init__(self, master):
         self.master = master
         self.master.title("Filtro de Kalman - Visualização")
-        self.master.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.master.protocol("WM_DELETE_WINDOW", self.close_app)
 
         self.data = []
         self.image_data = []
         self.current_index = 0
         self.running = False
+        self.selected_object_id = None
 
         controls_frame = tk.Frame(master)
         controls_frame.pack()
@@ -87,19 +88,36 @@ class KalmanPlotter:
         self.stop_button = tk.Button(controls_frame, text="Parar", command=self.stop_playback)
         self.stop_button.grid(row=0, column=8)
 
+        self.id_label = tk.Label(controls_frame, text="ID do objeto:")
+        self.id_label.grid(row=1, column=0)
+
+        self.id_entry = tk.Entry(controls_frame, width=5)
+        self.id_entry.grid(row=1, column=1)
+
+        self.id_button = tk.Button(controls_frame, text="Exibir Velocidade", command=self.select_object_by_id)
+        self.id_button.grid(row=1, column=2)
+
         self.display_frame = tk.Frame(master)
-        self.display_frame.pack(fill=tk.BOTH, expand=True)
+        self.display_frame.pack()
 
         self.figure = plt.figure()
         self.ax = self.figure.add_subplot(111, projection='3d')
         self.ax.view_init(elev=30, azim=45)
 
+        # self.ax_2d = self.figure.add_subplot(122)
+        # self.ax_2d.axis('off')
+
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.display_frame)
+        # self.canvas.get_tk_widget().pack()
         self.canvas_widget = self.canvas.get_tk_widget()
         self.canvas_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.image_label = tk.Label(self.display_frame)
         self.image_label.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        self.graph_figure, self.graph_ax = plt.subplots()
+        self.graph_canvas = FigureCanvasTkAgg(self.graph_figure, master=master)
+        self.graph_canvas.get_tk_widget().pack()
 
     def load_file(self):
         file_path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
@@ -120,7 +138,6 @@ class KalmanPlotter:
             return
 
         self.ax.clear()
-        self.ax.view_init(elev=30, azim=45)
 
         parsed = parse_kalman_line(self.data[self.current_index])
         if not parsed:
@@ -129,15 +146,15 @@ class KalmanPlotter:
         timestamp = parsed[0]
         objects = parsed[1:]
 
+        self.current_objects = []
         for obj in objects:
             obj_id, obj_type, state, _, _ = obj
             x, y, z, vx, vy, vz, *_ = state
+            marker = 'o' if obj_type.lower() == 'ball' else '^'
+            color = 'red' if obj_type.lower() == 'ball' else 'blue'
 
-            if obj_type.lower() == "ball":
-                self.ax.scatter(x, y, z, c='red', s=50, marker='o')
-            else:
-                self.ax.scatter(x, y, z, c='blue', s=50, marker='^')
-
+            point = self.ax.scatter(x, y, z, c=color, s=50, marker=marker, picker=True)
+            self.current_objects.append((point, obj_id, x, y, z))
             self.ax.text(x, y, z + 0.2, f"ID {obj_id}", fontsize=8)
             self.ax.quiver(x, y, z, vx, vy, vz, length=0.5, normalize=True, color='black')
 
@@ -193,10 +210,55 @@ class KalmanPlotter:
     def stop_playback(self):
         self.running = False
 
-    def on_close(self):
-        self.running = False
+    def close_app(self):
         self.master.destroy()
         exit(0)
+
+    def select_object_by_id(self):
+        try:
+            obj_id = int(self.id_entry.get())
+            self.selected_object_id = obj_id
+            self.plot_velocity_graph(obj_id)
+        except ValueError:
+            pass
+
+    def plot_velocity_graph(self, object_id):
+        cycles = []  # Usar o número do ciclo
+        velocities_x = []
+        velocities_y = []
+        velocities_z = []
+
+        for cycle_index, line in enumerate(self.data):
+            parsed = parse_kalman_line(line)
+            if not parsed:
+                continue
+            timestamp = parsed[0]
+            for obj in parsed[1:]:
+                if obj[0] == object_id:
+                    _, _, state, _, _ = obj
+                    vx, vy, vz = state[3], state[4], state[5]
+                    cycles.append(cycle_index + 1)  # Usar o número do ciclo (1-indexed)
+                    velocities_x.append(vx)
+                    velocities_y.append(vy)
+                    velocities_z.append(vz)
+
+        # Clear previous graph
+        self.graph_ax.clear()
+        
+        # Plot each component separately
+        self.graph_ax.plot(cycles, velocities_x, label=f'Velocidade X do Objeto {object_id}', color='r')
+        self.graph_ax.plot(cycles, velocities_y, label=f'Velocidade Y do Objeto {object_id}', color='g')
+        self.graph_ax.plot(cycles, velocities_z, label=f'Velocidade Z do Objeto {object_id}', color='b')
+        
+        # Title and labels
+        self.graph_ax.set_title(f'Componentes da Velocidade do Objeto {object_id} ao longo dos ciclos')
+        self.graph_ax.set_xlabel('Ciclo')
+        self.graph_ax.set_ylabel('Velocidade')
+        self.graph_ax.legend()
+
+        # Redraw canvas
+        self.graph_canvas.draw()
+
 
 
 if __name__ == "__main__":
