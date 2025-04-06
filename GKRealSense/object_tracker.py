@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from filterpy.kalman import KalmanFilter
 from object_detector import ObjectType
 from object_pose_estimator import ObjectWithPosition
+from scipy.optimize import linear_sum_assignment
+
 
 
 @dataclass(slots=True)
@@ -44,15 +46,13 @@ class ObjectTracker:
         self,
         input_candidates: list[tuple[int, list[ObjectWithPosition]]],
     ) -> list[TrackedObject]:
-        if not self.initialized:
-            self._initialize_filter(input_candidates)
-        else:
-            # 0. Reset the status of the filters
-            for tracked_object in self.tracked_objects:
-                tracked_object.kalmanFilterStatus.updated_in_the_last_cycle = False
+        # 0. Reset the status of the filters
+        for tracked_object in self.tracked_objects:
+            tracked_object.kalmanFilterStatus.updated_in_the_last_cycle = False
 
-            for timestamp, sensor_data in input_candidates:
-                self._run_filter_for_sensor(timestamp, sensor_data)
+        for timestamp, sensor_data in input_candidates:
+            self._run_filter_for_sensor(timestamp, sensor_data)
+            self.last_timestamp = timestamp
 
         # Update trustiness for objects that were not updated in the last cycle
         to_delete = []
@@ -69,7 +69,7 @@ class ObjectTracker:
                 to_delete.append(index)
 
         # Clear the untrustworthy objects
-        # TO FIX: This is not the best way to delete objects from the list
+        to_delete = sorted(to_delete, reverse=True)
         for index in to_delete:
             self.tracked_objects.pop(index)
 
@@ -78,38 +78,66 @@ class ObjectTracker:
     def _run_filter_for_sensor(
         self, timestamp, measurements: list[ObjectWithPosition]
     ) -> None:
+        # 0. Check if we have any tracked object
+        len_tracked_objects: int = len(self.tracked_objects)
+        if len_tracked_objects == 0:
+            # If we don't have any tracked object, we need to create one for each measurement
+            for measurement in measurements:
+                self._create_new_tracked_object(
+                    measurement,
+                    timestamp=timestamp,
+                    trustiness=0.15
+                )
+            return
+
         # 1. Update ball status predictions (We assume that all measurement from the same sensor has the same timestamp)
         self._update_kalman_predictions(timestamp)
 
-        # 2. For each measurement
-        for measurement in measurements:
+        ## Association Step:
+        # 2.1 We need to construct a matrix table with the association between the measurements and the tracked objects 
+        # to use the Hungarian algorithm to find the best association
+        len_measurements: int = len(measurements)
+        matrix_size: int = max(len_tracked_objects, len_measurements) # Tracked Objects ( Row ) x Measurements ( Column )
+        cost_matrix: np.ndarray = np.full((matrix_size, matrix_size), 1e9)
+
+        # 2.2 For each measurement we compute the cost of association with the tracked objects
+        for index, measurement in enumerate(measurements):
             if measurement.position[0] == 0:
+                # Invalid measurement, keep the cost at infinity
                 continue
 
-            # 2.1 Make the associations between measurement and tracked balls
-            (
-                association_result,
-                association_weight,
-                association_index,
-            ) = self._make_association(
+            association_result: np.ndarray = self._make_association(
                 measurement.object_type, measurement.position, measurement.variance
             )
+            cost_matrix[:len_tracked_objects, index] = association_result.flatten()
 
-            # 2.2 Apply the measurement into the kalman filter if associated
-            if association_result:
-                self._apply_measurement_to_kalman_filter(
-                    association_index=association_index,
-                    association_weight=association_weight,
-                    position=measurement.position,
-                    variance=measurement.variance,
+        # 2.3 Apply the Hungarian algorithm to find the best association
+        _, measurement_association_indexes = linear_sum_assignment(cost_matrix)
+
+        ## Apply measurement to the Kalman Filter
+        for index in range(len_measurements):
+            # 3.1 Get the association for this measurement
+            associated_object_index = measurement_association_indexes[index]
+
+            if cost_matrix[associated_object_index, index] == 1e9:
+                # This measurement is not associated with any tracked object
+                # So we create a new tracked object
+                self._create_new_tracked_object(
+                    measurements[index],
+                    timestamp=timestamp,
+                    trustiness=0.15,
+                )
+                continue
+          
+            # 3.2 Apply the measurement into the Kalman filter if associated
+            self._apply_measurement_to_kalman_filter(
+                    association_index=associated_object_index,
+                    association_weight=cost_matrix[associated_object_index, index],
+                    position=measurements[index].position,
+                    variance=measurements[index].variance,
                     timestamp=timestamp,
                 )
-            # 2.3 Create a new tracking object if not associated
-            else:
-                self._create_new_tracking_object(
-                    measurement,
-                    timestamp=timestamp,
-                )
+                
 
     def _update_kalman_predictions(self, timestamp_ns: int) -> None:
         # Using the same model for every tracked object, maybe in the future it has a specific model
@@ -143,28 +171,18 @@ class ObjectTracker:
                 tracked_object.kalmanFilter.x[8] = abs(tracked_object.kalmanFilter.x[8]) * 0.5
             tracked_object.kalmanFilterStatus.last_update_timestamp = timestamp_ns
 
-    def _initialize_filter(
-        self, sensors_inputs: list[tuple[int, list[ObjectWithPosition]]]
-    ) -> None:
-        self.initialized = True
-        for timestamp, sensor_measurements in sensors_inputs:
-            for measurement in sensor_measurements:
-                self._create_new_tracking_object(
-                    measurement,
-                    timestamp,
-                    trustiness=0.15,
-                )
 
     def _make_association(
         self, measurement_type: ObjectType, mean: np.ndarray, covariance: np.ndarray
-    ) -> tuple[bool, float, int]:
-        # Perform the association to found out each object is be measurand by the measurement.
+    ) -> list[float]:
         # Now it is done only a simple distance check, but this can be improved in the future.
         # Add new features, as color, size, velocity and others.
         # We are not using the covariance now, only the mean
+
         MOVING_DISTANCE_THRESHOLD = 0.6
         STILL_DISTANCE_THRESHOLD = 0.4
-        association_result: tuple[bool, float, int] = (False, 0.0, 0)
+        association_costs = np.full((len(self.tracked_objects), 1), 1e9)
+
         for index, tracked_object in enumerate(self.tracked_objects):
             if measurement_type != tracked_object.objectStatus.object_type:
                 continue
@@ -190,12 +208,10 @@ class ObjectTracker:
                 check_z = pos_diff[2] > 0.75 * STILL_DISTANCE_THRESHOLD
                 if check_x or check_y or check_z:
                     continue
+            
+            association_costs[index, 0] = distance_diff
 
-            if not association_result[0] or association_result[1] > distance_diff:
-                # Update the association result
-                association_result = (True, distance_diff, index)
-
-        return association_result
+        return association_costs
 
     def _apply_measurement_to_kalman_filter(
         self,
@@ -233,7 +249,7 @@ class ObjectTracker:
             association_index
         ].kalmanFilterStatus.last_update_timestamp = timestamp
 
-    def _create_new_tracking_object(
+    def _create_new_tracked_object(
         self,
         object: ObjectWithPosition,
         timestamp: int,
