@@ -78,14 +78,14 @@ class ObjectTracker:
     def _run_filter_for_sensor(
         self, timestamp, measurements: list[ObjectWithPosition]
     ) -> None:
-        if len(measurements) == 0:
-            return
-
         # 1. Update ball status predictions (We assume that all measurement from the same sensor has the same timestamp)
         self._update_kalman_predictions(timestamp)
 
         # 2. For each measurement
         for measurement in measurements:
+            if measurement.position[0] == 0:
+                continue
+
             # 2.1 Make the associations between measurement and tracked balls
             (
                 association_result,
@@ -119,9 +119,9 @@ class ObjectTracker:
         matrix_f = np.eye(9)
         ACCELERATION_VARIANCE = 0.1
         matrix_q_base = ACCELERATION_VARIANCE * np.block([
-            [np.diag([0.25, 0.25, 0.25]), np.diag([0.5, 0.5, 0.5]), np.diag([0.5, 0.5, 0.5])],
-            [np.diag([0.5, 0.5, 0.5]), np.eye(3), np.eye(3)],
-            [np.diag([0.5, 0.5, 0.5]), np.eye(3), np.eye(3)]
+            [np.diag([0.25, 0.25, 0.25]), np.diag([0.25, 0.25, 0.25]), np.diag([0.25, 0.25, 0.25])],
+            [np.diag([0.25, 0.25, 0.25]), np.eye(3), np.eye(3)],
+            [np.diag([0.25, 0.25, 0.25]), np.eye(3), np.eye(3)]
         ])
         
 
@@ -131,11 +131,16 @@ class ObjectTracker:
             )
             delta_time_s = delta_time_ns / 1e9
 
-            self._update_matrix_f(matrix_f, delta_time_s)
+            use_gravity = tracked_object.kalmanFilter.x[2] > 0.2
+            self._update_matrix_f(matrix_f, use_gravity, delta_time_s)
             self._update_matrix_q(matrix_q_base, delta_time_s)
             matrix_q = matrix_q_base
 
             tracked_object.kalmanFilter.predict(F=matrix_f, Q=matrix_q)
+            if tracked_object.kalmanFilter.x[2] < 0:
+                tracked_object.kalmanFilter.x[2] = 0
+                tracked_object.kalmanFilter.x[5] = -tracked_object.kalmanFilter.x[5] * 0.5
+                tracked_object.kalmanFilter.x[8] = abs(tracked_object.kalmanFilter.x[8]) * 0.5
             tracked_object.kalmanFilterStatus.last_update_timestamp = timestamp_ns
 
     def _initialize_filter(
@@ -157,16 +162,34 @@ class ObjectTracker:
         # Now it is done only a simple distance check, but this can be improved in the future.
         # Add new features, as color, size, velocity and others.
         # We are not using the covariance now, only the mean
-
+        MOVING_DISTANCE_THRESHOLD = 0.6
+        STILL_DISTANCE_THRESHOLD = 0.4
         association_result: tuple[bool, float, int] = (False, 0.0, 0)
         for index, tracked_object in enumerate(self.tracked_objects):
             if measurement_type != tracked_object.objectStatus.object_type:
                 continue
-
-            # Add simple distance calculation
-            distance_diff = np.linalg.norm(mean[:3] - tracked_object.kalmanFilter.x[:3])
-            if distance_diff > 500:
-                continue
+            
+            pos_diff = mean[:3] - tracked_object.kalmanFilter.x[:3]
+            distance_diff = np.linalg.norm(pos_diff)
+            velocity = tracked_object.kalmanFilter.x[3:6]
+            speed = np.linalg.norm(velocity)
+            if speed > 0.2:
+                direction = velocity / speed
+                threshold = MOVING_DISTANCE_THRESHOLD * abs(direction)
+                
+                check_x = pos_diff[0] > max(threshold[0], STILL_DISTANCE_THRESHOLD)
+                check_y = pos_diff[1] > max(threshold[1], STILL_DISTANCE_THRESHOLD)
+                check_z = pos_diff[2] > max(threshold[2], STILL_DISTANCE_THRESHOLD)
+                if check_x or check_y or check_z:
+                    continue
+                
+            else:
+                # Se o objeto está parado, usa distância normal
+                check_x = pos_diff[0] > 3.0 * STILL_DISTANCE_THRESHOLD
+                check_y = pos_diff[1] > STILL_DISTANCE_THRESHOLD
+                check_z = pos_diff[2] > 0.75 * STILL_DISTANCE_THRESHOLD
+                if check_x or check_y or check_z:
+                    continue
 
             if not association_result[0] or association_result[1] > distance_diff:
                 # Update the association result
@@ -189,7 +212,7 @@ class ObjectTracker:
         )
 
         # association_weight  # This need to be better planned
-        trustiness_coefficient = 0.25
+        trustiness_coefficient = 0.1
 
         self.tracked_objects[association_index].kalmanFilterStatus.update_trustiness(
             trustiness_coefficient
@@ -203,7 +226,8 @@ class ObjectTracker:
             association_index
         ].kalmanFilterStatus.cycles_without_update = 0
 
-        self.tracked_objects[association_index].kalmanFilterStatus.cycles_updates += 1
+        if self.tracked_objects[association_index].kalmanFilterStatus.cycles_updates < 5:
+            self.tracked_objects[association_index].kalmanFilterStatus.cycles_updates += 1
 
         self.tracked_objects[
             association_index
@@ -224,9 +248,9 @@ class ObjectTracker:
         # 1.1.1 Add first position measurement
         kalmanFilter.x = np.array(
             [
-                object.position[0][0],
-                object.position[0][1],
-                object.position[0][2],
+                object.position[0],
+                object.position[1],
+                object.position[2],
                 0.0,
                 0.0,
                 0.0,
@@ -287,10 +311,21 @@ class ObjectTracker:
 
         return MAX_TRUSTNESS * min((174 / covariance_norm_diag), 1.0)
 
-    def _update_matrix_f(self, matrix_f: np.ndarray, dt_s: float):
+    def _update_matrix_f(self, matrix_f: np.ndarray, use_gravity: bool, dt_s: float):
         matrix_f[0, 3] = dt_s
         matrix_f[1, 4] = dt_s
         matrix_f[2, 5] = dt_s
+
+        matrix_f[3, 6] = dt_s
+        matrix_f[4, 7] = dt_s
+        matrix_f[5, 8] = dt_s
+
+        matrix_f[6, 0] = dt_s**2 / 2
+        matrix_f[7, 1] = dt_s**2 / 2
+        matrix_f[8, 2] = dt_s**2 / 2
+
+        if use_gravity:
+            matrix_f[8, 5] = -9.81 * dt_s
     
     def _update_matrix_q(self, matrix_q: np.ndarray, dt_s: float):
         dt2_s: float = dt_s ** 2
@@ -301,9 +336,9 @@ class ObjectTracker:
         matrix_q[1, 1] *= dt4_s
         matrix_q[2, 2] *= dt4_s
 
-        matrix_q[3, 3] *= dt2_s
-        matrix_q[4, 4] *= dt2_s
-        matrix_q[5, 5] *= dt2_s
+        matrix_q[3, 3] *= dt4_s
+        matrix_q[4, 4] *= dt4_s
+        matrix_q[5, 5] *= dt4_s
 
         matrix_q[0, 3] *= dt3_s
         matrix_q[1, 4] *= dt3_s

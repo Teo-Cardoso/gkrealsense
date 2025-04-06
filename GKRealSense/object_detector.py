@@ -60,6 +60,12 @@ class ObjectDetector:
         type = self._get_class(source_type == FramesMix.DEPTH_COLOR, int(result[5]))
         box = tuple(map(lambda x: int(x), result[:4]))
         return DetectedObject(type, confidence, box)
+    
+    def _filter_by_type(
+        self, source_type: FramesMix, result: list[float]
+    ) -> list[DetectedObject]:
+        type = self._get_class(source_type == FramesMix.DEPTH_COLOR, int(result[5]))
+        return type == ObjectType.BALL
 
     def detect(
         self, source_type: FramesMix, source: np.ndarray
@@ -89,6 +95,9 @@ class ObjectDetector:
                 continue
 
             for result in result_data:
+                if not self._filter_by_type(source_type, result):
+                    continue
+
                 detected_objects.append(
                     self._map_result_to_object(source_type, result)
                 )

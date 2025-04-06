@@ -8,16 +8,18 @@ import numpy as np
 import time
 
 def main():
-    SAVE_DATA = False
+    SAVE_DATA = True
     realsense = RealSenseHandler(RealSenseConfig())
     obj_detector = ObjectDetector(
         color_model_name="/workspaces/neno_ws/best_with_lines.pt",
         ir_model_name="/workspaces/neno_ws/best_300ep.pt",
     )
+
     obj_pose_estimator = ObjectPoseEstimator(
         realsense.depth_intrinsics,
         color_intrinsics=realsense.color_intrinsics,
         ir_intrinsics=realsense.color_intrinsics,
+        transform_camera_to_robot=np.array([[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0.775], [0, 0, 0, 1]]),
     )
 
     obj_tracker = ObjectTracker()
@@ -27,7 +29,6 @@ def main():
     first_timestamp = start_time
 
     while True:
-        start_time = time.perf_counter()
         timestamp, frames_mix, depth_frame, second_frame = realsense.get_frames()
 
         second_image = np.asanyarray(second_frame.get_data())
@@ -35,17 +36,18 @@ def main():
             second_image = cv2.cvtColor(second_image, cv2.COLOR_GRAY2BGR)
 
         result: list[DetectedObject] = obj_detector.detect(frames_mix, second_image)
-        print(f"Detected {len(result)} objects")
+        loop_start = time.perf_counter()
         result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
-            depth_frame, result
+            np.eye(4), depth_frame, result
         )
 
         track_result = obj_tracker.track([(timestamp, result_pose)])
+        print(f"track time: {1000 * (time.perf_counter() - loop_start):.2f} ms")
         if SAVE_DATA:
             with open(f"track_results_{first_timestamp}.txt", "a") as file:
                 file.write(f"timestamp: {timestamp}, objects: [")
                 for track in track_result:
-                    file.write(f" ({track.objectStatus.object_id}, {track.objectStatus.object_type}, {track.kalmanFilter.x}, {track.kalmanFilterStatus.trustiness}, {track.kalmanFilterStatus.updated_in_the_last_cycle})")
+                    file.write(f" ({track.objectStatus.object_id}, {track.objectStatus.object_type}, {track.kalmanFilter.x}, {track.kalmanFilter.P.tolist()}, {track.kalmanFilterStatus.trustiness}, {track.kalmanFilterStatus.updated_in_the_last_cycle})")
                     file.write(",")
                 file.write("]\n")
                 
@@ -71,7 +73,7 @@ def main():
                 2,
             )
 
-            x, y, z = list(result_pose[obj_index].position)[0]
+            x, y, z = list(result_pose[obj_index].position)
             cv2.putText(
                 second_image,
                 f"{x:.2f}, {y:.2f}, {z:.2f}",

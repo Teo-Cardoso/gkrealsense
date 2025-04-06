@@ -25,17 +25,19 @@ class ObjectPoseEstimator:
         depth_intrinsics: rs.intrinsics,
         color_intrinsics: rs.intrinsics,
         ir_intrinsics: rs.intrinsics,
+        transform_camera_to_robot: np.ndarray = np.eye(4),
     ):
         self.depth_intrinsics: rs.intrinsics = depth_intrinsics
         self.color_intrinsics: rs.intrinsics = color_intrinsics
         self.ir_intrinsics: rs.intrinsics = ir_intrinsics
+        self.transform_camera_to_robot: np.ndarray = transform_camera_to_robot
 
     def _compute_variance(self, position: np.ndarray) -> np.ndarray:
         # TODO: Implement the computation of the variance
-        return np.array([[0.1, 0.1, 0.1]])
+        return np.array([[0.25, 0.25, 0.25]])
 
     def _map_detected_object_to_object_with_position(
-        self, depth_frame: rs.depth_frame, detected_object: DetectedObject
+        self, camera_to_world: np.ndarray, depth_frame: rs.depth_frame, detected_object: DetectedObject
     ) -> ObjectWithPosition:
         # Improvement point: get the average from the pixels in the neighbourhood of the center point
         x_point = int((detected_object.box[0] + detected_object.box[2]) / 2)
@@ -47,8 +49,9 @@ class ObjectPoseEstimator:
             z_distance,
         )
 
-        position = np.array([[x_distance, y_distance, z_distance]])
-        # TODO: Convert to robot frame
+        position = np.array([[x_distance, y_distance, z_distance, 1]]).transpose()
+        position = np.dot(camera_to_world, position)
+        position = position[:3].flatten()
         return ObjectWithPosition(
             detected_object.type,
             position,
@@ -56,12 +59,14 @@ class ObjectPoseEstimator:
         )
 
     def estimate_position(
-        self, depth_frame: rs.depth_frame, detected_objects: list[DetectedObject]
+        self, robot_to_world: np.ndarray, depth_frame: rs.depth_frame, detected_objects: list[DetectedObject]
     ) -> list[ObjectWithPosition]:
         """Estimate position of detected objects"""
+        camera_to_world: np.ndarray = np.dot(robot_to_world, self.transform_camera_to_robot)
+
         detected_objects_with_position: list[ObjectWithPosition] = [
             self._map_detected_object_to_object_with_position(
-                depth_frame, detected_object
+                camera_to_world, depth_frame, detected_object
             )
             for detected_object in detected_objects
         ]

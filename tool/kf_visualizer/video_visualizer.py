@@ -1,4 +1,5 @@
 import re
+import time
 import tkinter as tk
 from tkinter import filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -19,17 +20,22 @@ def parse_kalman_line(line):
     timestamp = int(match.group(1))
     objects_str = match.group(2)
 
-    object_pattern = re.compile(r"\((\d+), ObjectType\.(\w+), \[([^\]]+)\], ([\d\.]+), (True|False)\)")
+    object_pattern = re.compile(r"\((\d+), ObjectType\.(\w+), \[([^\]]+)\], (\[\[.*?\]\]), ([\d\.]+), (True|False)\)")
 
     parsed_objects = []
     for obj_match in object_pattern.finditer(objects_str):
         obj_id = int(obj_match.group(1))
         obj_type = obj_match.group(2).capitalize()
         state_values = list(map(float, obj_match.group(3).split()))
-        confidence = float(obj_match.group(4))
-        valid = obj_match.group(5) == "True"
+        try:
+            covariance = eval(obj_match.group(4))
+        except Exception as e:
+            print(f"Error parsing covariance matrix: {e}")
+            covariance = np.zeros((9, 9))
+        confidence = float(obj_match.group(5))
+        valid = obj_match.group(6) == "True"
 
-        parsed_objects.append([obj_id, obj_type, state_values, confidence, valid])
+        parsed_objects.append([obj_id, obj_type, state_values, covariance, confidence, valid])
 
     return [timestamp] + parsed_objects
 
@@ -82,7 +88,7 @@ class KalmanPlotter:
         self.jump_button = tk.Button(controls_frame, text="Ir", command=self.jump_to_cycle)
         self.jump_button.grid(row=0, column=6)
 
-        self.play_button = tk.Button(controls_frame, text="Reproduzir (90 ciclos/s)", command=self.play_cycles)
+        self.play_button = tk.Button(controls_frame, text="Reproduzir", command=self.play_cycles)
         self.play_button.grid(row=0, column=7)
 
         self.stop_button = tk.Button(controls_frame, text="Parar", command=self.stop_playback)
@@ -102,7 +108,7 @@ class KalmanPlotter:
 
         self.figure = plt.figure()
         self.ax = self.figure.add_subplot(111, projection='3d')
-        self.ax.view_init(elev=30, azim=45)
+        self.ax.view_init(elev=30, azim=180)
 
         # self.ax_2d = self.figure.add_subplot(122)
         # self.ax_2d.axis('off')
@@ -148,19 +154,52 @@ class KalmanPlotter:
 
         self.current_objects = []
         for obj in objects:
-            obj_id, obj_type, state, _, _ = obj
+            obj_id, obj_type, state, covariance, conf, _ = obj
             x, y, z, vx, vy, vz, *_ = state
             marker = 'o' if obj_type.lower() == 'ball' else '^'
             color = 'red' if obj_type.lower() == 'ball' else 'blue'
 
             point = self.ax.scatter(x, y, z, c=color, s=50, marker=marker, picker=True)
             self.current_objects.append((point, obj_id, x, y, z))
-            self.ax.text(x, y, z + 0.2, f"ID {obj_id}", fontsize=8)
-            self.ax.quiver(x, y, z, vx, vy, vz, length=0.5, normalize=True, color='black')
+            self.ax.text(x, y, z + 0.2, f"ID {obj_id}, Conf: {conf:.2f}", fontsize=8)
+            self.ax.quiver(x, y, z, vx, vy, vz, length=1.0, normalize=False, color='black')
 
-        self.ax.set_xlim(-5, 5)
-        self.ax.set_ylim(-5, 5)
-        self.ax.set_zlim(0, 10)
+            # --- Elipsoide 3D para representar incerteza da posição ---
+            pos_cov = np.array(covariance)[:3, :3]  # 3x3 posição
+
+            # Autovalores e autovetores
+            eigenvalues, eigenvectors = np.linalg.eigh(pos_cov)
+
+            # Escala a elipsoide para um intervalo visual razoável (ex: 1 desvio padrão)
+            radii = np.sqrt(eigenvalues)
+
+            # Cria esfera
+            u = np.linspace(0, 2 * np.pi, 20)
+            v = np.linspace(0, np.pi, 20)
+            x_ell = np.outer(np.cos(u), np.sin(v))
+            y_ell = np.outer(np.sin(u), np.sin(v))
+            z_ell = np.outer(np.ones_like(u), np.cos(v))
+
+            # Aplica escala e rotação (transforma esfera em elipsoide)
+            ellipsoid = np.array([x_ell, y_ell, z_ell])
+            for i in range(3):
+                ellipsoid[i] *= radii[i]
+            ellipsoid = eigenvectors @ ellipsoid.reshape(3, -1)
+            x_ell, y_ell, z_ell = ellipsoid.reshape(3, *x_ell.shape)
+
+            # Translada para o ponto central (x, y, z)
+            self.ax.plot_surface(
+                x_ell + x,
+                y_ell + y,
+                z_ell + z,
+                color=color,
+                alpha=0.2,
+                linewidth=0
+            )
+
+        self.ax.set_xlim(0, 15)
+        self.ax.set_ylim(5, -5)
+        self.ax.set_zlim(0, 3)
         self.ax.set_title(f'Ciclo {self.current_index + 1} - Timestamp: {timestamp}')
         self.ax.set_xlabel("X")
         self.ax.set_ylabel("Y")
@@ -176,6 +215,7 @@ class KalmanPlotter:
                 image = ImageTk.PhotoImage(image=image)
                 self.image_label.config(image=image)
                 self.image_label.image = image
+
 
     def prev_cycle(self):
         if self.current_index > 0:
@@ -227,6 +267,7 @@ class KalmanPlotter:
         velocities_x = []
         velocities_y = []
         velocities_z = []
+        confidences = []
 
         for cycle_index, line in enumerate(self.data):
             parsed = parse_kalman_line(line)
@@ -235,12 +276,13 @@ class KalmanPlotter:
             timestamp = parsed[0]
             for obj in parsed[1:]:
                 if obj[0] == object_id:
-                    _, _, state, _, _ = obj
+                    _, _, state, _, confidence, _ = obj
                     vx, vy, vz = state[3], state[4], state[5]
                     cycles.append(cycle_index + 1)  # Usar o número do ciclo (1-indexed)
                     velocities_x.append(vx)
                     velocities_y.append(vy)
                     velocities_z.append(vz)
+                    confidences.append(confidence)
 
         # Clear previous graph
         self.graph_ax.clear()
@@ -249,6 +291,7 @@ class KalmanPlotter:
         self.graph_ax.plot(cycles, velocities_x, label=f'Velocidade X do Objeto {object_id}', color='r')
         self.graph_ax.plot(cycles, velocities_y, label=f'Velocidade Y do Objeto {object_id}', color='g')
         self.graph_ax.plot(cycles, velocities_z, label=f'Velocidade Z do Objeto {object_id}', color='b')
+        self.graph_ax.plot(cycles, confidences, label=f'Confiança do Objeto {object_id}', color='y', linestyle='--')
         
         # Title and labels
         self.graph_ax.set_title(f'Componentes da Velocidade do Objeto {object_id} ao longo dos ciclos')
