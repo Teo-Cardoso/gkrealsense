@@ -47,7 +47,11 @@ def main():
             with open(f"track_results_{first_timestamp}.txt", "a") as file:
                 file.write(f"timestamp: {timestamp}, objects: [")
                 for track in track_result:
-                    file.write(f" ({track.objectStatus.object_id}, {track.objectStatus.object_type}, {track.kalmanFilter.x}, {track.kalmanFilter.P.tolist()}, {track.kalmanFilterStatus.trustiness}, {track.kalmanFilterStatus.updated_in_the_last_cycle})")
+                    if track.kalmanFilterStatus.cycles == 1:
+                        x_prior , P_prior = track.kalmanFilter.x, track.kalmanFilter.P.tolist()
+                    else:
+                        x_prior, P_prior = track.kalmanFilter.x_prior, track.kalmanFilter.P_prior.tolist()
+                    file.write(f" ({track.objectStatus.object_id}, {track.objectStatus.object_type}, {track.kalmanFilter.x}, {track.kalmanFilter.P.tolist()}, {x_prior}, {P_prior}, {track.kalmanFilterStatus.trustiness}, {track.kalmanFilterStatus.updated_in_the_last_cycle})")
                     file.write(",")
                 file.write("]\n")
                 
