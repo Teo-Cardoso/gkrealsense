@@ -33,8 +33,8 @@ class ObjectPoseEstimator:
         self.transform_camera_to_robot: np.ndarray = transform_camera_to_robot
 
     def _compute_variance(self, position: np.ndarray) -> np.ndarray:
-        # TODO: Implement the computation of the variance
-        return np.array([[0.25, 0.25, 0.25]])
+        """Compute variance of the position"""
+        return np.array([[min(0.1 * position[0], 0.45), 0.25, 0.25]])
 
     def _map_detected_object_to_object_with_position(
         self, camera_to_world: np.ndarray, depth_frame: rs.depth_frame, detected_object: DetectedObject
@@ -42,12 +42,44 @@ class ObjectPoseEstimator:
         # Improvement point: get the average from the pixels in the neighbourhood of the center point
         x_point = int((detected_object.box[0] + detected_object.box[2]) / 2)
         y_point = int((detected_object.box[1] + detected_object.box[3]) / 2)
-        z_distance: float = depth_frame.get_distance(x_point, y_point)
-        x_distance, y_distance, _ = rs.rs2_deproject_pixel_to_point(
-            self.depth_intrinsics,
-            [x_point, y_point],
-            z_distance,
-        )
+        neighbourhood: int = 2
+
+        distances: list[list[float]] = [[], [], []]
+        for dx in range(-neighbourhood, neighbourhood + 1):
+            for dy in range(-neighbourhood, neighbourhood + 1):
+                
+                x_point_neigh = int(x_point + dx)
+                y_point_neigh = int(y_point + dy)
+                if (
+                    x_point_neigh < 0
+                    or x_point_neigh >= self.depth_intrinsics.width
+                    or y_point_neigh < 0
+                    or y_point_neigh >= self.depth_intrinsics.height
+                ):
+                    continue
+
+                z_distance: float = depth_frame.get_distance(x_point_neigh, y_point_neigh)
+                if z_distance < 0:
+                    continue
+                
+                x_distance, y_distance, _ = rs.rs2_deproject_pixel_to_point(
+                    self.depth_intrinsics,
+                    [x_point, y_point],
+                    z_distance,
+                )
+
+                distances[0].append(x_distance)
+                distances[1].append(y_distance)
+                distances[2].append(z_distance)        
+
+        if len(distances[0]) == 0:
+            x_distance = 0.0
+            y_distance = 0.0
+            z_distance = 0.0
+        else:
+            x_distance = np.mean(distances[0])
+            y_distance = np.mean(distances[1])
+            z_distance = np.mean(distances[2])
 
         position = np.array([[x_distance, y_distance, z_distance, 1]]).transpose()
         position = np.dot(camera_to_world, position)
