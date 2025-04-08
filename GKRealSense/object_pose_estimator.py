@@ -34,7 +34,7 @@ class ObjectPoseEstimator:
 
     def _compute_variance(self, position: np.ndarray) -> np.ndarray:
         """Compute variance of the position"""
-        return np.array([[min(0.1 * position[0], 0.45), 0.25, 0.25]])
+        return np.array([[min(0.15 * position[0], 0.65), 0.25, 0.25]])
 
     def _map_detected_object_to_object_with_position(
         self, camera_to_world: np.ndarray, depth_frame: rs.depth_frame, detected_object: DetectedObject

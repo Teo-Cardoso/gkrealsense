@@ -1,3 +1,4 @@
+import math
 import time
 import numpy as np
 from dataclasses import dataclass
@@ -24,8 +25,13 @@ class KalmanFilterStatus:
     cycles: int = 1  # Number of cycle this object exist
 
     def update_trustiness(self, trustiness_coefficient: float):
-        trustiness_rate = trustiness_coefficient
-        self.trustiness = max(min(self.trustiness + trustiness_rate, 1.0), 0.0)
+        MAX_DELTA = 0.07
+        trustiness_rate = max(-1, min(1, trustiness_coefficient))
+        if trustiness_rate < 0:
+            delta = MAX_DELTA * trustiness_rate * math.exp(-1.5 * self.trustiness)
+        else:
+            delta = MAX_DELTA * trustiness_rate * math.exp(-1.5 * (1.0 - self.trustiness))
+        self.trustiness = max(min(self.trustiness + delta, 1.0), 0.0)
 
 
 @dataclass(slots=True)
@@ -62,7 +68,7 @@ class ObjectTracker:
         to_delete = []
         for index, tracked_object in enumerate(self.tracked_objects):
             if not tracked_object.kalmanFilterStatus.updated_in_the_last_cycle:
-                tracked_object.kalmanFilterStatus.update_trustiness(-0.05)
+                tracked_object.kalmanFilterStatus.update_trustiness(-1)
                 tracked_object.kalmanFilterStatus.cycles_without_update += 1
                 tracked_object.kalmanFilterStatus.cycles_updates -= 1
 
@@ -157,11 +163,11 @@ class ObjectTracker:
         # Such as to be close to a robot ou hit the floor.
 
         matrix_f_base = np.eye(9)
-        ACCELERATION_VARIANCE = 0.1
+        ACCELERATION_VARIANCE = 0.01
         matrix_q_base = ACCELERATION_VARIANCE * np.block([
-            [np.diag([0.25, 0.25, 0.25]), np.diag([0.25, 0.25, 0.25]), np.diag([0.25, 0.25, 0.25])],
-            [np.diag([0.25, 0.25, 0.25]), np.eye(3), np.eye(3)],
-            [np.diag([0.25, 0.25, 0.25]), np.eye(3), 1000 * np.eye(3)]
+            [np.diag([0.25, 0.25, 0.25]), np.diag([0.50, 0.50, 0.50]), np.diag([0.50, 0.50, 0.50])],
+            [np.diag([0.50, 0.50, 0.50]), np.diag([1.00, 1.00, 1.00]), np.diag([1.00, 1.00, 1.00])],
+            [np.diag([0.50, 0.50, 0.50]), np.diag([1.00, 1.00, 1.00]), np.diag([1000, 1000, 1000])],
         ])
 
         for tracked_object in self.tracked_objects:
@@ -199,7 +205,8 @@ class ObjectTracker:
                 continue
             
             mahlanobis_distance = np.dot(np.dot(pos_diff, np.linalg.inv(tracked_object.kalmanFilter.P[0:3, 0:3])), pos_diff.transpose())
-            association_costs[index, 0] = mahlanobis_distance
+            low_trustiness_punishment = (2.0 - tracked_object.kalmanFilterStatus.trustiness) ** 2
+            association_costs[index, 0] = mahlanobis_distance * low_trustiness_punishment
 
         return association_costs
 
@@ -218,7 +225,9 @@ class ObjectTracker:
         )
 
         # association_weight  # This need to be better planned
-        trustiness_coefficient = 0.1
+        trustiness_coefficient = 1.0
+        if variance[0][0] > 0.25:
+            trustiness_coefficient *= 0.65
 
         self.tracked_objects[association_index].kalmanFilterStatus.update_trustiness(
             trustiness_coefficient
