@@ -224,7 +224,6 @@ class ObjectTracker:
             z=position, R=covariance
         )
 
-        # association_weight  # This need to be better planned
         trustiness_coefficient = 1.0
         if variance[0][0] > 0.25:
             trustiness_coefficient *= 0.65

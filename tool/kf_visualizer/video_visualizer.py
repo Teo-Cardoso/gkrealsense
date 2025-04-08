@@ -65,6 +65,7 @@ class KalmanPlotter:
         self.current_index = 0
         self.running = False
         self.selected_object_id = None
+        self.last_velocity_plot_id = None
 
         controls_frame = tk.Frame(master)
         controls_frame.pack()
@@ -223,7 +224,7 @@ class KalmanPlotter:
                 linewidth=0
             )
 
-        self.ax.set_xlim(0, 15)
+        self.ax.set_xlim(0, 10)
         self.ax.set_ylim(5, -5)
         self.ax.set_zlim(0, 3)
         self.ax.set_title(f'Ciclo {self.current_index + 1} - Timestamp: {timestamp}')
@@ -247,11 +248,13 @@ class KalmanPlotter:
         if self.current_index > 0:
             self.current_index -= 1
             self.plot_cycle()
+            self.plot_velocity_graph(self.selected_object_id)
 
     def next_cycle(self):
         if self.current_index < len(self.data) - 1:
             self.current_index += 1
             self.plot_cycle()
+            self.plot_velocity_graph(self.selected_object_id)
 
     def jump_to_cycle(self):
         try:
@@ -259,6 +262,7 @@ class KalmanPlotter:
             if 0 <= index < len(self.data):
                 self.current_index = index
                 self.plot_cycle()
+                self.plot_velocity_graph(self.selected_object_id)
         except ValueError:
             pass
 
@@ -270,6 +274,7 @@ class KalmanPlotter:
         if not self.running or self.current_index >= len(self.data):
             return
         self.plot_cycle()
+        self.plot_velocity_graph(self.selected_object_id)
         self.current_index += 1
         self.master.after(11, self._play_loop)
 
@@ -281,43 +286,63 @@ class KalmanPlotter:
         exit(0)
 
     def select_object_by_id(self):
-        try:
-            obj_id = int(self.id_entry.get())
-            self.selected_object_id = obj_id
-            self.plot_velocity_graph(obj_id)
-        except ValueError:
-            pass
+        obj_id = int(self.id_entry.get())
+        self.selected_object_id = obj_id
+        self.plot_velocity_graph(obj_id)
 
     def plot_velocity_graph(self, object_id):
-        cycles = []  # Usar o número do ciclo
-        velocities_x = []
-        velocities_y = []
-        velocities_z = []
-        confidences = []
+        if object_id is None:
+            return
 
-        for cycle_index, line in enumerate(self.data):
-            parsed = parse_kalman_line(line)
-            if not parsed:
-                continue
-            timestamp = parsed[0]
-            for obj in parsed[1:]:
-                if obj[0] == object_id:
-                    _, _, state, _, confidence, _ = obj
-                    vx, vy, vz = state[3], state[4], state[5]
-                    cycles.append(cycle_index + 1)  # Usar o número do ciclo (1-indexed)
-                    velocities_x.append(vx)
-                    velocities_y.append(vy)
-                    velocities_z.append(vz)
-                    confidences.append(confidence)
+        if object_id != self.last_velocity_plot_id:
+            self.velocity_cycles = []  # Usar o número do ciclo
+            self.velocities_x = []
+            self.velocities_y = []
+            self.velocities_z = []
+            self.confidences = []
 
+        self.last_velocity_plot_id = object_id
+        if len(self.velocity_cycles) == 0:
+            for cycle_index, line in enumerate(self.data):
+                parsed = parse_kalman_line(line)
+                if not parsed:
+                    continue
+                timestamp = parsed[0]
+                for obj in parsed[1:]:
+                    if obj[0] == object_id:
+                        _, _, state, _, _, _, confidence, _ = obj
+                        vx, vy, vz = state[3], state[4], state[5]
+                        self.velocity_cycles.append(cycle_index + 1)  # Usar o número do ciclo (1-indexed)
+                        self.velocities_x.append(vx)
+                        self.velocities_y.append(vy)
+                        self.velocities_z.append(vz)
+                        self.confidences.append(confidence)
+                        break
         # Clear previous graph
         self.graph_ax.clear()
         
+        current_cycle = self.current_index
+        self.graph_ax.axvline(x=current_cycle, color='gray', linestyle='--', linewidth=1)
+        idx = self.velocity_cycles.index(current_cycle + 1)
+        vx = self.velocities_x[idx]
+        vy = self.velocities_y[idx]
+        vz = self.velocities_z[idx]
+        conf = self.confidences[idx]
+
+        # Adiciona texto ao lado da linha
+        self.graph_ax.annotate(f'Vx: {vx:.2f}', xy=(current_cycle, vx), xytext=(current_cycle + 0.5, vx),
+                            arrowprops=dict(arrowstyle='->', color='red'), color='red')
+        self.graph_ax.annotate(f'Vy: {vy:.2f}', xy=(current_cycle, vy), xytext=(current_cycle + 0.5, vy),
+                            arrowprops=dict(arrowstyle='->', color='green'), color='green')
+        self.graph_ax.annotate(f'Vz: {vz:.2f}', xy=(current_cycle, vz), xytext=(current_cycle + 0.5, vz),
+                            arrowprops=dict(arrowstyle='->', color='blue'), color='blue')
+        self.graph_ax.annotate(f'Conf: {conf:.2f}', xy=(current_cycle, conf), xytext=(current_cycle + 0.5, conf),
+                            arrowprops=dict(arrowstyle='->', color='orange'), color='orange')
         # Plot each component separately
-        self.graph_ax.plot(cycles, velocities_x, label=f'Velocidade X do Objeto {object_id}', color='r')
-        self.graph_ax.plot(cycles, velocities_y, label=f'Velocidade Y do Objeto {object_id}', color='g')
-        self.graph_ax.plot(cycles, velocities_z, label=f'Velocidade Z do Objeto {object_id}', color='b')
-        self.graph_ax.plot(cycles, confidences, label=f'Confiança do Objeto {object_id}', color='y', linestyle='--')
+        self.graph_ax.plot(self.velocity_cycles, self.velocities_x, label=f'Velocidade X do Objeto {object_id}', color='r')
+        self.graph_ax.plot(self.velocity_cycles, self.velocities_y, label=f'Velocidade Y do Objeto {object_id}', color='g')
+        self.graph_ax.plot(self.velocity_cycles, self.velocities_z, label=f'Velocidade Z do Objeto {object_id}', color='b')
+        self.graph_ax.plot(self.velocity_cycles, self.confidences, label=f'Confiança do Objeto {object_id}', color='y', linestyle='--')
         
         # Title and labels
         self.graph_ax.set_title(f'Componentes da Velocidade do Objeto {object_id} ao longo dos ciclos')
