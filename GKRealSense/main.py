@@ -26,7 +26,7 @@ def main():
 
     frame_count: int = 0
     start_time = time.perf_counter()
-    first_timestamp = start_time
+    first_timestamp = time.time_ns()
 
     while True:
         timestamp, frames_mix, depth_frame, second_frame = realsense.get_frames()

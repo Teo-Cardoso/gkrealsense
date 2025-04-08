@@ -36,10 +36,11 @@ class TrackedObject:
 
 
 class ObjectTracker:
+    INVALID_OBJECT_DISTANCE_THRESHOLD: float = 0.05
+
     def __init__(self):
         self.tracked_objects: list[TrackedObject] = []
         self.last_timestamp: int = 0
-        self.initialized: bool = False
         self.object_id_counter: int = 0
 
     def track(
@@ -51,6 +52,9 @@ class ObjectTracker:
             tracked_object.kalmanFilterStatus.updated_in_the_last_cycle = False
 
         for timestamp, sensor_data in input_candidates:
+            if (timestamp - self.last_timestamp > 500000000) and len(self.tracked_objects) > 0:
+                # If the time difference is too big, we need to reset the filter
+                self.tracked_objects = []
             self._run_filter_for_sensor(timestamp, sensor_data)
             self.last_timestamp = timestamp
 
@@ -83,6 +87,10 @@ class ObjectTracker:
         if len_tracked_objects == 0:
             # If we don't have any tracked object, we need to create one for each measurement
             for measurement in measurements:
+                if measurement.position[0] < self.INVALID_OBJECT_DISTANCE_THRESHOLD:
+                    # Invalid measurement, skip it
+                    continue
+
                 self._create_new_tracked_object(
                     measurement,
                     timestamp=timestamp,
@@ -102,7 +110,7 @@ class ObjectTracker:
 
         # 2.2 For each measurement we compute the cost of association with the tracked objects
         for index, measurement in enumerate(measurements):
-            if measurement.position[0] == 0:
+            if measurement.position[0] < self.INVALID_OBJECT_DISTANCE_THRESHOLD:
                 # Invalid measurement, keep the cost at infinity
                 continue
 
@@ -112,29 +120,33 @@ class ObjectTracker:
             cost_matrix[:len_tracked_objects, index] = association_result.flatten()
 
         # 2.3 Apply the Hungarian algorithm to find the best association
-        _, measurement_association_indexes = linear_sum_assignment(cost_matrix)
+        objects_association_indexes, measurement_association_indexes = linear_sum_assignment(cost_matrix)
 
         ## Apply measurement to the Kalman Filter
-        for index in range(len_measurements):
+        for index in range(matrix_size):
+            measurement_association_index = measurement_association_indexes[index]
+            if measurement_association_index >= len_measurements:
+                continue
+            
             # 3.1 Get the association for this measurement
-            associated_object_index = measurement_association_indexes[index]
-
-            if cost_matrix[associated_object_index, index] == 1e9:
+            associated_object_index = objects_association_indexes[index]
+            if cost_matrix[associated_object_index, measurement_association_index] == 1e9:
                 # This measurement is not associated with any tracked object
                 # So we create a new tracked object
-                self._create_new_tracked_object(
-                    measurements[index],
-                    timestamp=timestamp,
-                    trustiness=0.15,
-                )
+                if measurements[measurement_association_index].position[0] >= self.INVALID_OBJECT_DISTANCE_THRESHOLD:
+                    self._create_new_tracked_object(
+                        measurements[measurement_association_index],
+                        timestamp=timestamp,
+                        trustiness=0.15,
+                    )
                 continue
           
             # 3.2 Apply the measurement into the Kalman filter if associated
             self._apply_measurement_to_kalman_filter(
                     association_index=associated_object_index,
-                    association_weight=cost_matrix[associated_object_index, index],
-                    position=measurements[index].position,
-                    variance=measurements[index].variance,
+                    association_weight=cost_matrix[associated_object_index, measurement_association_index],
+                    position=measurements[measurement_association_index].position,
+                    variance=measurements[measurement_association_index].variance,
                     timestamp=timestamp,
                 )
                 
@@ -144,14 +156,13 @@ class ObjectTracker:
         # for each tracker so we can use other information to have a better prediction
         # Such as to be close to a robot ou hit the floor.
 
-        matrix_f = np.eye(9)
+        matrix_f_base = np.eye(9)
         ACCELERATION_VARIANCE = 0.1
         matrix_q_base = ACCELERATION_VARIANCE * np.block([
             [np.diag([0.25, 0.25, 0.25]), np.diag([0.25, 0.25, 0.25]), np.diag([0.25, 0.25, 0.25])],
             [np.diag([0.25, 0.25, 0.25]), np.eye(3), np.eye(3)],
-            [np.diag([0.25, 0.25, 0.25]), np.eye(3), np.eye(3)]
+            [np.diag([0.25, 0.25, 0.25]), np.eye(3), 1000 * np.eye(3)]
         ])
-        
 
         for tracked_object in self.tracked_objects:
             delta_time_ns = (
@@ -160,9 +171,10 @@ class ObjectTracker:
             delta_time_s = delta_time_ns / 1e9
 
             use_gravity = tracked_object.kalmanFilter.x[2] > 0.2
+            matrix_f = matrix_f_base.copy()
             self._update_matrix_f(matrix_f, use_gravity, delta_time_s)
-            self._update_matrix_q(matrix_q_base, delta_time_s)
-            matrix_q = matrix_q_base
+            matrix_q = matrix_q_base.copy()
+            self._update_matrix_q(matrix_q, tracked_object.kalmanFilter.x[3:6], delta_time_s)
 
             tracked_object.kalmanFilter.predict(F=matrix_f, Q=matrix_q)
             if tracked_object.kalmanFilter.x[2] < 0:
@@ -175,41 +187,19 @@ class ObjectTracker:
     def _make_association(
         self, measurement_type: ObjectType, mean: np.ndarray, covariance: np.ndarray
     ) -> list[float]:
-        # Now it is done only a simple distance check, but this can be improved in the future.
-        # Add new features, as color, size, velocity and others.
-        # We are not using the covariance now, only the mean
-
-        MOVING_DISTANCE_THRESHOLD = 0.6
-        STILL_DISTANCE_THRESHOLD = 0.4
+        STILL_DISTANCE_THRESHOLD = 1.0
         association_costs = np.full((len(self.tracked_objects), 1), 1e9)
-
         for index, tracked_object in enumerate(self.tracked_objects):
             if measurement_type != tracked_object.objectStatus.object_type:
                 continue
-            
+
             pos_diff = mean[:3] - tracked_object.kalmanFilter.x[:3]
             distance_diff = np.linalg.norm(pos_diff)
-            velocity = tracked_object.kalmanFilter.x[3:6]
-            speed = np.linalg.norm(velocity)
-            if speed > 0.2:
-                direction = velocity / speed
-                threshold = MOVING_DISTANCE_THRESHOLD * abs(direction)
-                
-                check_x = pos_diff[0] > max(threshold[0], STILL_DISTANCE_THRESHOLD)
-                check_y = pos_diff[1] > max(threshold[1], STILL_DISTANCE_THRESHOLD)
-                check_z = pos_diff[2] > max(threshold[2], STILL_DISTANCE_THRESHOLD)
-                if check_x or check_y or check_z:
-                    continue
-                
-            else:
-                # Se o objeto está parado, usa distância normal
-                check_x = pos_diff[0] > 3.0 * STILL_DISTANCE_THRESHOLD
-                check_y = pos_diff[1] > STILL_DISTANCE_THRESHOLD
-                check_z = pos_diff[2] > 0.75 * STILL_DISTANCE_THRESHOLD
-                if check_x or check_y or check_z:
-                    continue
+            if distance_diff > STILL_DISTANCE_THRESHOLD:
+                continue
             
-            association_costs[index, 0] = distance_diff
+            mahlanobis_distance = np.dot(np.dot(pos_diff, np.linalg.inv(tracked_object.kalmanFilter.P[0:3, 0:3])), pos_diff.transpose())
+            association_costs[index, 0] = mahlanobis_distance
 
         return association_costs
 
@@ -343,14 +333,21 @@ class ObjectTracker:
         if use_gravity:
             matrix_f[8, 5] = -9.81 * dt_s
     
-    def _update_matrix_q(self, matrix_q: np.ndarray, dt_s: float):
+    def _update_matrix_q(self, matrix_q: np.ndarray, velocity: np.ndarray, dt_s: float):
         dt2_s: float = dt_s ** 2
         dt3_s: float = dt_s ** 3
         dt4_s: float = dt_s ** 4
 
-        matrix_q[0, 0] *= dt4_s
-        matrix_q[1, 1] *= dt4_s
-        matrix_q[2, 2] *= dt4_s
+        speed = np.linalg.norm(velocity)
+        if speed > 0.3:
+            direction = velocity / speed
+            ddT = np.outer(direction, direction)
+            I = np.eye(3)
+            matrix_q[0:3, 0:3] = (2.0 * dt4_s) * ddT + (0.5 * dt4_s) * (I - ddT)
+        else:
+            matrix_q[0, 0] *= dt4_s
+            matrix_q[1, 1] *= dt4_s
+            matrix_q[2, 2] *= dt4_s
 
         matrix_q[3, 3] *= dt4_s
         matrix_q[4, 4] *= dt4_s
