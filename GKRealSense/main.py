@@ -2,6 +2,7 @@ from realsense_handler import RealSenseHandler, RealSenseConfig, FramesMix
 from object_detector import ObjectDetector, DetectedObject, ObjectType
 from object_pose_estimator import ObjectPoseEstimator, ObjectWithPosition
 from object_tracker import ObjectTracker
+from ball_classifier import BallClassifier, BallClassifiedObject
 
 import cv2
 import numpy as np
@@ -24,6 +25,8 @@ def main():
 
     obj_tracker = ObjectTracker()
 
+    ball_classifier = BallClassifier()
+
     frame_count: int = 0
     start_time = time.perf_counter()
     first_timestamp = time.time_ns()
@@ -42,6 +45,8 @@ def main():
         )
 
         track_result = obj_tracker.track([(timestamp, result_pose)])
+        ball_candidates, closest_ball, closest_ball_by_time = ball_classifier.classify(track_result)
+
         print(f"track time: {1000 * (time.perf_counter() - loop_start):.2f} ms")
         if SAVE_DATA:
             with open(f"track_results_{first_timestamp}.txt", "a") as file:
