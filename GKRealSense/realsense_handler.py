@@ -83,7 +83,7 @@ class RealSenseHandler:
         # )
 
         self.frames_number: FramesNumber = FramesNumber()
-        self.last_time: int = time.perf_counter_ns()
+        self.last_time: int = time.time_ns()
         self.align = rs.align(rs.stream.color)
 
     def __del__(self):
@@ -116,5 +116,5 @@ class RealSenseHandler:
                 depth_frame = frames.get_depth_frame()
 
         self.frames_number.depth = depth_frame.get_frame_number()
-        self.last_time = time.perf_counter_ns()
+        self.last_time = time.time_ns()
         return self.last_time, result_type, depth_frame, second_frame
