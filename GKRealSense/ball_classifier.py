@@ -32,6 +32,7 @@ class BallClassificationProperties:
     cycle_count: int = 0
     cycles_going: int = 0
     cycles_coming: int = 0
+    trustiness: float = 0.0
     time_to_goal: float = float("inf")
     distance_to_goal: float = float("inf")
     crossing_point: np.ndarray = field(default_factory = lambda: np.array([float("inf"), float("inf"), float("inf")]))
@@ -44,7 +45,7 @@ class BallClassifiedObject:
     object_id: int
     dynamics: ObjectDynamic
     classification: BallClass
-    properties: BallClassificationProperties = BallClassificationProperties()
+    properties: BallClassificationProperties = field(default_factory = lambda: BallClassificationProperties())
 
 class BallClassifier:
     VX_THRESHOLD_GOING = 0.3
@@ -58,7 +59,7 @@ class BallClassifier:
     """
     Class for classifying ball objects based on their dynamics and time to goal.
     """
-    def __init__(self, goal_center: np.ndarray = np.array([0, 0]), goal_shape: tuple[float, float] = (2.4, 1.0)):
+    def __init__(self, goal_center: np.ndarray = np.array([0, 0, 0]), goal_shape: tuple[float, float] = (2.4, 1.0)):
         self.goal_center = goal_center
         self.goal_shape = goal_shape
 
@@ -66,13 +67,14 @@ class BallClassifier:
         self.closest_ball = (None, float("inf"))
         self.closest_ball_by_time = (None, float("inf"))
 
-    def classify(self, tracked_objects: list[TrackedObject]) -> BallClassifiedObject:
+    def classify(self, tracked_objects: list[TrackedObject]) -> tuple[dict[int, BallClassifiedObject], tuple[int, float], tuple[int, float]]:
         """
         Classify the ball object based on its dynamics and time to goal.
         """
         
         self.closest_ball = (None, float("inf"))
         self.closest_ball_by_time = (None, float("inf"))
+        to_delete: list[int] = list(self.balls.keys())
         for tracked_object in tracked_objects:
             if tracked_object.objectStatus.object_type != ObjectType.BALL:
                 continue
@@ -81,16 +83,23 @@ class BallClassifier:
             if not (ball_id in self.balls.keys()):
                 self._add_ball(tracked_object)
                 continue
+            else:
+                to_delete.remove(ball_id)
 
             ball_position = tracked_object.kalmanFilter.x[:3]
-            ball_velocity = tracked_object.kalmanFilter.x[3:5]
+            ball_velocity = tracked_object.kalmanFilter.x[3:6]
             ball_acceleration = tracked_object.kalmanFilter.x[6:8]
 
             self.balls[ball_id].dynamics = ObjectDynamic(ball_position, ball_velocity, ball_acceleration)
 
             self._update_properties(self.balls[ball_id])
+            self.balls[ball_id].properties.trustiness = tracked_object.kalmanFilterStatus.trustiness 
             self.balls[ball_id].classification = self._classify_ball(self.balls[ball_id])
         
+        for ball_id in to_delete:
+            if ball_id in self.balls.keys():
+                del self.balls[ball_id]
+
         return self.balls, self.closest_ball, self.closest_ball_by_time
 
     
@@ -111,7 +120,7 @@ class BallClassifier:
         )
 
         self._update_properties(self.balls[ball_id])
-
+        self.balls[ball_id].properties.trustiness = tracked_object.kalmanFilterStatus.trustiness
         self.balls[ball_id].classification = self._classify_ball(self.balls[ball_id])
     
     def _update_properties(self, ball: BallClassifiedObject):
@@ -119,7 +128,7 @@ class BallClassifier:
         Update the properties of the ball classification.
         """
         ball.properties.cycle_count += 1
-        ball.properties.distance_to_goal = np.linalg.norm(ball.dynamics.position[:2] - self.goal_center)
+        ball.properties.distance_to_goal = np.linalg.norm(ball.dynamics.position[:2] - self.goal_center[:2])
 
         if ball.properties.distance_to_goal < self.closest_ball[1]:
             self.closest_ball = (ball.object_id, ball.properties.distance_to_goal)

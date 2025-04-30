@@ -3,13 +3,16 @@ from object_detector import ObjectDetector, DetectedObject, ObjectType
 from object_pose_estimator import ObjectPoseEstimator, ObjectWithPosition
 from object_tracker import ObjectTracker
 from ball_classifier import BallClassifier, BallClassifiedObject
+import field_visualizer
 
 import cv2
 import numpy as np
 import time
 
 def main():
-    SAVE_DATA = True
+    SAVE_DATA = False
+    VISUALIZE = True
+
     realsense = RealSenseHandler(RealSenseConfig())
     obj_detector = ObjectDetector(
         color_model_name="/workspaces/neno_ws/best_with_lines.pt",
@@ -20,12 +23,16 @@ def main():
         realsense.depth_intrinsics,
         color_intrinsics=realsense.color_intrinsics,
         ir_intrinsics=realsense.color_intrinsics,
-        transform_camera_to_robot=np.array([[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0.775], [0, 0, 0, 1]]),
+        transform_camera_to_robot=np.array([[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0.535], [0, 0, 0, 1]]),
     )
 
     obj_tracker = ObjectTracker()
 
     ball_classifier = BallClassifier()
+
+    if VISUALIZE:
+        visualize_engine = field_visualizer.Engine()
+
 
     frame_count: int = 0
     start_time = time.perf_counter()
@@ -38,16 +45,31 @@ def main():
         if frames_mix == FramesMix.DEPTH_INFRARED:
             second_image = cv2.cvtColor(second_image, cv2.COLOR_GRAY2BGR)
 
+        detect_loop_start = time.perf_counter()
         result: list[DetectedObject] = obj_detector.detect(frames_mix, second_image)
-        loop_start = time.perf_counter()
         result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
             np.eye(4), depth_frame, result
         )
+        print(f"detect time: {1000 * (time.perf_counter() - detect_loop_start):.2f} ms")
 
+        track_loop_start = time.perf_counter()
         track_result = obj_tracker.track([(timestamp, result_pose)])
+        print(f"track time: {1000 * (time.perf_counter() - track_loop_start):.2f} ms")
+        classify_loop_start = time.perf_counter()
         ball_candidates, closest_ball, closest_ball_by_time = ball_classifier.classify(track_result)
+        print(f"ball classifier time: {1000 * (time.perf_counter() - classify_loop_start):.2f} ms")
+        if VISUALIZE:
+            visualize_engine.clear()
+            visualize_engine.add_goalkeeper(field_visualizer.Goalkeeper(visualize_engine, field_visualizer.Point(0, 0)))
+            for ball_id in ball_candidates:
+                if ball_candidates[ball_id].properties.trustiness <= 0.2:
+                    continue
 
-        print(f"track time: {1000 * (time.perf_counter() - loop_start):.2f} ms")
+                visualize_engine.add_ball(field_visualizer.Ball(visualize_engine, ball_candidates[ball_id]))
+            
+            if not visualize_engine.run():
+                break
+
         if SAVE_DATA:
             with open(f"track_results_{first_timestamp}.txt", "a") as file:
                 file.write(f"timestamp: {timestamp}, objects: [")

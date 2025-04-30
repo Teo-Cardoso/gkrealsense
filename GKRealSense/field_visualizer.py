@@ -1,4 +1,3 @@
-import copy
 import dataclasses
 import math
 import time
@@ -6,6 +5,8 @@ import numpy as np
 import pygame
 
 from ball_classifier import ObjectDynamic, BallClass, BallClassifiedObject, BallClassificationProperties
+
+
 @dataclasses.dataclass(slots=True)
 class Point:
     x: float
@@ -255,7 +256,6 @@ class Ball(pygame.sprite.Sprite):
         self._create_image(Point(ball.dynamics.position[0] + self.GOAL_CENTER.x, ball.dynamics.position[1] + self.GOAL_CENTER.y))
 
     def _create_image(self, position_field: Point):
-        print(position_field)
         BALL_RADIUS = 0.11  # 0.11 meters (standard soccer ball radius)
         self.radius = math.ceil(BALL_RADIUS * self.engine.get_scale())
 
@@ -290,15 +290,15 @@ class Ball(pygame.sprite.Sprite):
         )
 
     def _draw_simulation_line(self):
+        if self.status.properties.crossing_point[0] == float("inf") or self.status.properties.crossing_point[1] == float("inf"):
+            return
+
         impact_x = (self.GOAL_CENTER.x + self.status.properties.crossing_point[0]) * self.engine.get_scale() + self.engine.half_padding
         impact_y = (self.GOAL_CENTER.y + self.status.properties.crossing_point[1]) * self.engine.get_scale() + self.engine.half_padding
 
-        if impact_x == float("inf") or impact_y == float("inf"):
-            return
-
         ball_x = (self.GOAL_CENTER.x + self.status.dynamics.position[0]) * self.engine.get_scale() + self.engine.half_padding
         ball_y = (self.GOAL_CENTER.y + self.status.dynamics.position[1]) * self.engine.get_scale() + self.engine.half_padding
-        
+
         pygame.draw.line(
             self.engine.screen,
             (0, 0, 255),
@@ -321,7 +321,7 @@ class Ball(pygame.sprite.Sprite):
             - self.radius
         )
 
-        ball_status_text = self.engine.font.render(f"ID: {self.status.object_id} -  Vx: {self.status.dynamics.velocity[0]}\n Vy: {self.status.dynamics.velocity[1]}", True, (0, 0, 0))
+        ball_status_text = self.engine.font.render(f"ID: {self.status.object_id} -  Vx: {self.status.dynamics.velocity[0]:.2f}  Vy: {self.status.dynamics.velocity[1]:.2f}", True, (0, 0, 0))
         self.engine.screen.blit(ball_status_text, self.rect.center)
     
 class Goalkeeper(pygame.sprite.Sprite):
@@ -339,8 +339,8 @@ class Goalkeeper(pygame.sprite.Sprite):
         self.create_image(position_field)
 
     def create_image(self, position_field: Point):
-        self.width = 0.52 * engine.get_scale()  # 0.52 meters
-        self.height = 0.52 * engine.get_scale()
+        self.width = 0.52 * self.engine.get_scale()  # 0.52 meters
+        self.height = 0.52 * self.engine.get_scale()
         self.board_width = 1  # 1 pixel
 
         self.image = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
@@ -363,8 +363,8 @@ class Goalkeeper(pygame.sprite.Sprite):
 
         self.rect = self.image.get_rect()
         self.rect.center = (
-            position_field.x * engine.get_scale() + engine.half_padding,
-            position_field.y * engine.get_scale() + engine.half_padding,
+            position_field.x * self.engine.get_scale() + self.engine.half_padding,
+            position_field.y * self.engine.get_scale() + self.engine.half_padding,
         )
 
     def update(self):
