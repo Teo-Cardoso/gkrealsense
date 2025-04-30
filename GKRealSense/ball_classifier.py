@@ -110,7 +110,7 @@ class BallClassifier:
 
         ball_id = tracked_object.objectStatus.object_id
         ball_position = tracked_object.kalmanFilter.x[:3]
-        ball_velocity = tracked_object.kalmanFilter.x[3:5]
+        ball_velocity = tracked_object.kalmanFilter.x[3:6]
         ball_acceleration = tracked_object.kalmanFilter.x[6:8]
 
         self.balls[ball_id] = BallClassifiedObject(
