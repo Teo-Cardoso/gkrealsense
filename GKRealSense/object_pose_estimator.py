@@ -4,7 +4,7 @@ This module provides functionality to estimate the pose of detected objects usin
 It converts the list of DetectedObject into a list of ObjectWithPosition
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from realsense_handler import rs
 from object_detector import DetectedObject, ObjectType
 import numpy as np
@@ -15,8 +15,8 @@ class ObjectWithPosition:
     """Dataclass to store object with position"""
 
     object_type: ObjectType
-    position: np.ndarray = np.zeros((1, 3))
-    variance: np.ndarray = np.zeros((1, 3))
+    position: np.ndarray = field(default_factory= lambda: np.zeros((1, 3)))
+    variance: np.ndarray = field(default_factory= lambda: np.zeros((1, 3)))
 
 
 class ObjectPoseEstimator:
