@@ -16,11 +16,12 @@ class ThreeCamerasHandler:
     
     def get_images(self) -> list[np.ndarray]:
         metadata, frames = self.ipc.receive_image()
-        if metadata.timestamp == self.last_timestamp:
-            return []
+        # Should we wait or skip the frame?
+        while metadata.timestamp == self.last_timestamp:
+            metadata, frames = self.ipc.receive_image()
 
         return frames[0][:, 0:640], frames[0][:, 640:1280], frames[0][:, 1280:1920]
 
-    def get_objects_position(self, robot_to_world: np.ndarray, detected_objects: list[DetectedObject]) -> list[ObjectWithPosition]:
+    # def get_objects_position(self, robot_to_world: np.ndarray, detected_objects: list[DetectedObject]) -> list[ObjectWithPosition]:
         
         
