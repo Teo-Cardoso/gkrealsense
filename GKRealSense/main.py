@@ -9,6 +9,11 @@ import cv2
 import numpy as np
 import time
 
+try:
+    import threecameras_handler
+except Exception as e:
+    print("Error importing threecameras_handler:", e)
+
 def main():
     SAVE_DATA = False
     VISUALIZE = True
@@ -33,6 +38,7 @@ def main():
     if VISUALIZE:
         visualize_engine = field_visualizer.Engine()
 
+    threecameras = threecameras_handler.ThreeCamerasHandler()
 
     frame_count: int = 0
     start_time = time.perf_counter()
@@ -46,9 +52,13 @@ def main():
             second_image = cv2.cvtColor(second_image, cv2.COLOR_GRAY2BGR)
 
         detect_loop_start = time.perf_counter()
-        result: list[DetectedObject] = obj_detector.detect(frames_mix, second_image)
+        threecameras_frames = threecameras.get_images()
+
+        image_sources = [second_image, *threecameras_frames]
+        realsense_result, threecamera_result = obj_detector.detect(frames_mix, image_sources)
+
         result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
-            np.eye(4), depth_frame, result
+            np.eye(4), depth_frame, realsense_result
         )
         print(f"detect time: {1000 * (time.perf_counter() - detect_loop_start):.2f} ms")
 
@@ -83,8 +93,8 @@ def main():
                 file.write("]\n")
                 
         
-        for obj_index in range(len(result)):
-            x1, y1, x2, y2 = result[obj_index].box
+        for obj_index in range(len(realsense_result)):
+            x1, y1, x2, y2 = realsense_result[obj_index].box
             cv2.circle(
                 second_image,
                 (int((x1 + x2) / 2), int((y1 + y2) / 2)),
@@ -93,7 +103,7 @@ def main():
                 -1,
             )
 
-            label = f"{str(result[obj_index].type)}:{result[obj_index].confidence:.2f}"
+            label = f"{str(realsense_result[obj_index].type)}:{realsense_result[obj_index].confidence:.2f}"
             cv2.putText(
                 second_image,
                 label,

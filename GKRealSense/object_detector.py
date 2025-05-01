@@ -7,6 +7,8 @@ It can detect objects of the following types: ball, red, blue, robot, person.
 It returns a list of DetectedObject.
 """
 
+import ultralytics.engine
+import ultralytics.engine.results
 from realsense_handler import FramesMix
 
 import ultralytics
@@ -34,7 +36,10 @@ class DetectedObject:
 
 
 class ObjectDetector:
-    def __init__(self, color_model_name: str, ir_model_name: str):
+    def __init__(self, color_model_name: str, ir_model_name: str, color_full_model_name: str = ""):
+        if color_full_model_name == "":
+            color_full_model_name = color_model_name
+        self.color_full_model = ultralytics.YOLO(color_full_model_name, task="detect")
         self.color_model = ultralytics.YOLO(color_model_name, task="detect")
         self.color_classes = [
             ObjectType.BALL,
@@ -67,29 +72,11 @@ class ObjectDetector:
         type = self._get_class(source_type == FramesMix.DEPTH_COLOR, int(result[5]))
         return type == ObjectType.BALL
 
-    def detect(
-        self, source_type: FramesMix, source: np.ndarray
-    ) -> list[DetectedObject]:
-        """Detect objects in the frame"""
-        model: ultralytics.YOLO = (
-            self.color_model if source_type == FramesMix.DEPTH_COLOR else self.ir_model
-        )
-
-        results: list[ultralytics.engine.results.Results] = model.predict(
-            source=source,
-            conf=0.5,
-            verbose=False,
-            device=0,
-            half=False,
-            int8=False,
-            agnostic_nms=True,
-            imgsz=640,
-        )
-
+    def _parse_realsense_results(self, realsense_results: list[ultralytics.engine.results.Results], source_type: FramesMix) -> list[DetectedObject]:
         detected_objects: list[DetectedObject] = []
-        result_size: int = len(results)
+        result_size: int = len(realsense_results)
         for result_index in range(result_size):
-            result_data: list[float] = results[result_index].boxes.data.tolist()
+            result_data: list[float] = realsense_results[result_index].boxes.data.tolist()
 
             if len(result_data) == 0:
                 continue
@@ -103,3 +90,59 @@ class ObjectDetector:
                 )
 
         return detected_objects
+
+    def _parse_threecamera_results(self, threecamera_results: list[list[ultralytics.engine.results .Results]]) -> list[DetectedObject]:
+        detected_objects: list[list[DetectedObject]] = [[], [], []]
+        for index, result in enumerate(threecamera_results):
+            for result_index in range(len(result)):
+                result_data: list[float] = result[result_index].boxes.data.tolist()
+
+                if len(result_data) == 0:
+                    continue
+
+                for result in result_data:
+                    if not self._filter_by_type(FramesMix.DEPTH_COLOR, result):
+                        continue
+
+                    detected_objects[index].append(
+                        self._map_result_to_object(FramesMix.DEPTH_COLOR, result)
+                    )
+
+        return detected_objects
+
+    def detect(
+        self, source_type: FramesMix, source: list[np.ndarray]
+    ) -> list[DetectedObject]:
+        """Detect objects in the frame"""
+
+        model = None
+        only_realsense = len(source) == 1
+        if only_realsense:
+            # Only Using RealSense
+            model: ultralytics.YOLO = (
+                self.color_model if source_type == FramesMix.DEPTH_COLOR else self.ir_model
+            )
+        else:
+            # Using Three Cameras
+            model: ultralytics.YOLO = self.color_full_model
+        
+        results: list[list[ultralytics.engine.results.Results]] = model.predict(
+            source=source,
+            conf=0.5,
+            verbose=False,
+            device=0,
+            half=False,
+            int8=False,
+            agnostic_nms=True,
+            imgsz=640,
+        )
+
+        realsense_index: int = 0
+        realsense_results = self._parse_realsense_results(results[realsense_index], source_type)
+
+        if not only_realsense:
+            threecamera_results = self._parse_threecamera_results(results[realsense_index + 1 : realsense_index + 4])
+            return realsense_results, threecamera_results
+        
+        return realsense_index, [[], [], []]
+        
