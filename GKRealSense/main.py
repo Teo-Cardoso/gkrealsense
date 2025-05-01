@@ -51,23 +51,30 @@ def main():
         if frames_mix == FramesMix.DEPTH_INFRARED:
             second_image = cv2.cvtColor(second_image, cv2.COLOR_GRAY2BGR)
 
-        detect_loop_start = time.perf_counter()
-        threecameras_frames = threecameras.get_images()
+        threecamera_timestamp, threecameras_frames = threecameras.get_images()
 
         image_sources = [second_image, *threecameras_frames]
+        
+        detect_loop_start = time.perf_counter()
         realsense_result, threecamera_result = obj_detector.detect(frames_mix, image_sources)
+        print(f"[{frame_count}] Detect time: {1000 * (time.perf_counter() - detect_loop_start):.2f} ms")
 
-        result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
+        realsense_result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
             np.eye(4), depth_frame, realsense_result
         )
-        print(f"detect time: {1000 * (time.perf_counter() - detect_loop_start):.2f} ms")
+        threecamera_result_pose: list[ObjectWithPosition] = threecameras.get_objects_position(np.eye(4), threecamera_result[0])
 
+        measurements = [(timestamp, realsense_result_pose), (threecamera_timestamp, threecamera_result_pose)]
+        measurements.sort(key=lambda x: x[0])
+        
         track_loop_start = time.perf_counter()
-        track_result = obj_tracker.track([(timestamp, result_pose)])
-        print(f"track time: {1000 * (time.perf_counter() - track_loop_start):.2f} ms")
+        track_result = obj_tracker.track(measurements)
+        print(f"[{frame_count}] Track time: {1000 * (time.perf_counter() - track_loop_start):.2f} ms")
+
         classify_loop_start = time.perf_counter()
         ball_candidates, closest_ball, closest_ball_by_time = ball_classifier.classify(track_result)
-        print(f"ball classifier time: {1000 * (time.perf_counter() - classify_loop_start):.2f} ms")
+        print(f"[{frame_count}] Ball classifier time: {1000 * (time.perf_counter() - classify_loop_start):.2f} ms")
+
         if VISUALIZE:
             visualize_engine.clear()
             visualize_engine.add_goalkeeper(field_visualizer.Goalkeeper(visualize_engine, field_visualizer.Point(0, 0)))

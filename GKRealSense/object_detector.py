@@ -105,7 +105,7 @@ class ObjectDetector:
 
         return detected_objects
 
-    def _parse_threecamera_results(self, threecamera_results: list[list[ultralytics.engine.results .Results]]) -> list[list[DetectedObject]]:
+    def _parse_threecamera_results(self, threecamera_results: list[list[ultralytics.engine.results .Results]]) -> tuple[list[DetectedObject], tuple[list]]:
         detected_objects: list[DetectedObject] = []
         
         detected_balls = []
@@ -181,7 +181,7 @@ class ObjectDetector:
         if not only_realsense:
             threecamera_results = self._parse_threecamera_results(results[realsense_index + 1 : realsense_index + 4])
         else:
-            threecamera_results = [[], [], []]
+            threecamera_results = [[]]
 
         return realsense_results, threecamera_results
         
