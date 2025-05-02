@@ -66,7 +66,7 @@ class ThreeCamerasHandler:
         return ObjectWithPosition(
             detected_object.type,
             world_position,
-            np.array([[0.4, 0.4, 0.4]])
+            np.array([3 * [0.4 / detected_object.confidence]])
         )
     
     def get_objects_position(self, robot_to_world: np.ndarray, detected_objects: list[DetectedObject]) -> list[ObjectWithPosition]:
@@ -76,6 +76,36 @@ class ThreeCamerasHandler:
             )
             for detected_object in detected_objects
         ]
+
+        # Remove overlapping objects
+        to_delete = []
+        detected_objects_with_position_size = len(detected_objects_with_position)
+        for i in range(detected_objects_with_position_size):
+            for j in range(i + 1, detected_objects_with_position_size):
+                if j in to_delete:
+                    continue
+
+                if (detected_objects_with_position[i].object_type != detected_objects_with_position[j].object_type):
+                    continue
+
+                distance_between_objects = np.linalg.norm(
+                    detected_objects_with_position[i].position
+                    - detected_objects_with_position[j].position
+                )
+
+                if distance_between_objects > 0.1:
+                    continue
+
+                if detected_objects_with_position[i].variance[0][0] > detected_objects_with_position[j].variance[0][0]:
+                    to_delete.append(i)
+                    break
+                else:
+                    to_delete.append(j)
+        
+        to_delete = list(set(to_delete)) # Make sure to delete only once
+        to_delete.sort(reverse=True) # Sort in reverse order to avoid index issues
+        for i in to_delete:
+            detected_objects_with_position.pop(i)
 
         return detected_objects_with_position
         
