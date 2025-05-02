@@ -41,7 +41,8 @@ class ObjectPoseEstimator:
     ) -> ObjectWithPosition:
         # Improvement point: get the average from the pixels in the neighbourhood of the center point
         x_point = int((detected_object.box[0] + detected_object.box[2]) / 2)
-        y_point = int((detected_object.box[1] + detected_object.box[3]) / 2)
+        height = int(detected_object.box[3] - detected_object.box[1])
+        y_point = int(int(detected_object.box[1] + 3 * height / 4))
         neighbourhood: int = 1
 
         distances: list[list[float]] = [[], [], []]

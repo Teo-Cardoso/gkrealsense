@@ -93,9 +93,11 @@ class ThreeCamerasHandler:
                     - detected_objects_with_position[j].position
                 )
 
-                if distance_between_objects > 0.1:
+                # In the normal case we only have one ball, so we can try to use a higher threshold
+                # to remove the overlapping objects
+                if distance_between_objects > 0.325:
                     continue
-
+                
                 if detected_objects_with_position[i].variance[0][0] > detected_objects_with_position[j].variance[0][0]:
                     to_delete.append(i)
                     break
@@ -106,6 +108,7 @@ class ThreeCamerasHandler:
         to_delete.sort(reverse=True) # Sort in reverse order to avoid index issues
         for i in to_delete:
             detected_objects_with_position.pop(i)
+            detected_objects.pop(i)
 
         return detected_objects_with_position
         

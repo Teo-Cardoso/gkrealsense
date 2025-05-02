@@ -321,8 +321,11 @@ class Ball(pygame.sprite.Sprite):
             - self.radius
         )
 
-        ball_status_text = self.engine.font.render(f"ID: {self.status.object_id} -  Vx: {self.status.dynamics.velocity[0]:.2f}  Vy: {self.status.dynamics.velocity[1]:.2f}", True, (0, 0, 0))
-        self.engine.screen.blit(ball_status_text, self.rect.center)
+        ball_status_text_up = self.engine.font.render(f"ID: {self.status.object_id} -  Vx: {self.status.dynamics.velocity[0]:.2f}  Vy: {self.status.dynamics.velocity[1]:.2f}", True, (0, 0, 0))
+        self.engine.screen.blit(ball_status_text_up, self.rect.center)
+
+        ball_status_text_down = self.engine.font.render(f"X: {self.status.dynamics.position[0]:.2f} -  Y: {self.status.dynamics.position[1]:.2f}", True, (0, 0, 0))
+        self.engine.screen.blit(ball_status_text_down, (self.rect.center[0], self.rect.center[1] + 10))
     
 class Goalkeeper(pygame.sprite.Sprite):
     def __init__(self, engine: Engine, position_field: Point):
@@ -368,17 +371,7 @@ class Goalkeeper(pygame.sprite.Sprite):
         )
 
     def update(self):
-        self.rect.x = (
-            round(self.status.position.x * self.engine.get_scale())
-            + self.engine.half_padding
-            - self.width / 2
-        )
-
-        self.rect.y = (
-            round(self.status.position.y * self.engine.get_scale())
-            + self.engine.half_padding
-            - self.height / 2
-        )
+        pass
 
 
 if __name__ == "__main__":

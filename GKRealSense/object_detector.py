@@ -43,7 +43,7 @@ class ObjectDetector:
     def __init__(self, color_model_name: str, ir_model_name: str, color_full_model_name: str = ""):
         if color_full_model_name == "":
             color_full_model_name = color_model_name
-        self.color_full_model = ultralytics.YOLO(color_full_model_name, task="segment")
+        self.color_full_model = ultralytics.YOLO(color_full_model_name, task="detect")
         self.color_full_classes = [
             ObjectType.BALL,
             ObjectType.GOAL_POSTS,
@@ -63,6 +63,8 @@ class ObjectDetector:
 
         self.ir_model = ultralytics.YOLO(ir_model_name, task="detect")
         self.ir_classes = [ObjectType.BALL, ObjectType.PERSON, ObjectType.ROBOT]
+        self.source_supress_list = [1, 3]
+        self.source_supress_index = 0
 
     def _get_class(self, using_color: bool, class_id: int) -> ObjectType:
         # TO FIX: Fix the index to match correctly with the correct class
@@ -115,7 +117,7 @@ class ObjectDetector:
         detected_red_shirts = []
         detected_humans = []
         detected_lines = []
-
+        
         for cam_index, result in enumerate(threecamera_results):
             result_size: int = len(result)
             for result_index in range(result_size):
@@ -136,13 +138,20 @@ class ObjectDetector:
                         detected_data = detected_humans
 
                 if detected_data is not None:
-                    detected_data.append([int(cls), round(confidence, 2), int(x1), int(y1), int(x2), int(y2), cam_index])
+                    real_cam_index = 0
+                    supressed_source = self.source_supress_list[self.source_supress_index]
+                    if supressed_source <= (cam_index + 1):
+                        real_cam_index = cam_index + 1
+                    else:
+                        real_cam_index = cam_index
+                    
+                    detected_data.append([int(cls), round(confidence, 2), int(x1), int(y1), int(x2), int(y2), real_cam_index])
                     detected_object_element = [x1, y1, x2, y2, conf, cls]
                     if not self._filter_by_type(FramesMix.DEPTH_COLOR, detected_object_element):
                         continue
-
+                    
                     detected_objects.append(
-                        self._map_result_to_object(FramesMix.DEPTH_COLOR, detected_object_element, source=cam_index + 1)
+                        self._map_result_to_object(FramesMix.DEPTH_COLOR, detected_object_element, source=real_cam_index + 1)
                     )
 
         return detected_objects, (detected_balls, detected_goal_posts, detected_robots, detected_blue_shirts, detected_red_shirts, detected_humans)
@@ -151,7 +160,6 @@ class ObjectDetector:
         self, source_type: FramesMix, source: list[np.ndarray]
     ) -> list[list[DetectedObject]]:
         """Detect objects in the frame"""
-
         model = None
         only_realsense = len(source) == 1
         if only_realsense:
@@ -163,6 +171,8 @@ class ObjectDetector:
             # Using Three Cameras
             model: ultralytics.YOLO = self.color_full_model
         
+        source.pop(self.source_supress_list[self.source_supress_index])
+
         results: list[list[ultralytics.engine.results.Results]] = model.predict(
             source=source,
             conf=0.5,
@@ -170,18 +180,19 @@ class ObjectDetector:
             device=0,
             half=True,
             int8=False,
-            agnostic_nms=True,
+            agnostic_nms=False,
             imgsz=(480, 640),
-            batch=4,
+            batch=3,
         )
 
         realsense_index: int = 0
         realsense_results = self._parse_realsense_results(results[realsense_index], source_type)
 
         if not only_realsense:
-            threecamera_results = self._parse_threecamera_results(results[realsense_index + 1 : realsense_index + 4])
+            threecamera_results = self._parse_threecamera_results(results[realsense_index + 1 : realsense_index + 3])
         else:
             threecamera_results = [[]]
 
+        self.source_supress_index = (self.source_supress_index + 1) % len(self.source_supress_list)
         return realsense_results, threecamera_results
         
