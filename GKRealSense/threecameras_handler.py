@@ -69,12 +69,12 @@ class ThreeCamerasHandler:
             np.array([[0.4, 0.4, 0.4]])
         )
     
-    def get_objects_position(self, robot_to_world: np.ndarray, detected_objects: list[DetectedObject]) -> list[ObjectWithPosition]:
-        detected_objects_with_position: list[ObjectWithPosition] = [
-            self._map_detected_object_to_object_with_position(
+    def get_objects_position(self, robot_to_world: np.ndarray, detected_objects: list[list[DetectedObject]]) -> list[ObjectWithPosition]:
+        detected_objects_with_position: list[list[ObjectWithPosition]] = [
+            [self._map_detected_object_to_object_with_position(
                 robot_to_world, detected_object
             )
-            for detected_object in detected_objects
+            for detected_object in cam_detected_objects] for cam_detected_objects in detected_objects
         ]
 
         return detected_objects_with_position
