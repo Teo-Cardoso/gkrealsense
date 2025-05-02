@@ -42,20 +42,22 @@ class ThreeCamerasHandler:
     ) -> ObjectWithPosition:
         
         x1, _, x2, y2 = detected_object.box
-        center_x = int((x1 + x2) / 2)
+        center_x = int(x1 + (x2 - x1) / 2)
         pixel_coordinates = [int(y2), center_x]
-
+        pixel_coordinates[0] = np.clip(pixel_coordinates[0], 0, len(self.angles) - 1)
+        pixel_coordinates[1] = np.clip(pixel_coordinates[1], 0, len(self.angles[0]) - 1)
         angle = math.radians(self.angles[pixel_coordinates[0]][pixel_coordinates[1]])
+
         if detected_object.source == 1:
-            angle = angle + self.angle_shift
-        elif detected_object.source == 3:
             angle = angle - self.angle_shift
+        elif detected_object.source == 3:
+            angle = angle + self.angle_shift
 
         distance = self.distances[pixel_coordinates[0]][pixel_coordinates[1]]
 
-        x_distance = math.cos(angle) * distance * 1e-2
-        y_distance = math.sin(angle) * distance * 1e-2
-        relative_position = np.array([x_distance, y_distance, 0.0])
+        x_distance = math.cos(angle) * distance
+        y_distance = math.sin(angle) * distance
+        relative_position = np.array([x_distance, y_distance, 0.0, 1.0]).transpose()
 
         # Apply the transformation from camera to world
         world_position = np.dot(camera_to_world, relative_position)

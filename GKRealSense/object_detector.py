@@ -7,6 +7,7 @@ It can detect objects of the following types: ball, red, blue, robot, person.
 It returns a list of DetectedObject.
 """
 
+import time
 import ultralytics.engine
 import ultralytics.engine.results
 from realsense_handler import FramesMix
@@ -19,12 +20,12 @@ from enum import Enum
 
 class ObjectType(Enum):
     BALL = "ball"
+    GOAL_POSTS = "goal"
+    LINES = "lines"
+    PERSON = "person"
+    ROBOT = "robot"
     RED = "red"
     BLUE = "blue"
-    ROBOT = "robot"
-    PERSON = "person"
-    LINES = "lines"
-    GOAL_POSTS = "goal_posts"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,20 +46,19 @@ class ObjectDetector:
         self.color_full_model = ultralytics.YOLO(color_full_model_name, task="segment")
         self.color_full_classes = [
             ObjectType.BALL,
-            ObjectType.BLUE,
             ObjectType.GOAL_POSTS,
             ObjectType.LINES,
             ObjectType.PERSON,
-            ObjectType.RED,
-            ObjectType.ROBOT,
+            ObjectType.ROBOT
         ]
 
         self.color_model = ultralytics.YOLO(color_model_name, task="detect")
         self.color_classes = [
             ObjectType.BALL,
-            ObjectType.RED,
-            ObjectType.BLUE,
+            ObjectType.GOAL_POSTS,
+            ObjectType.LINES,
             ObjectType.PERSON,
+            ObjectType.ROBOT
         ]
 
         self.ir_model = ultralytics.YOLO(ir_model_name, task="detect")
@@ -114,6 +114,7 @@ class ObjectDetector:
         detected_blue_shirts = []
         detected_red_shirts = []
         detected_humans = []
+        detected_lines = []
 
         for cam_index, result in enumerate(threecamera_results):
             result_size: int = len(result)
@@ -129,21 +130,19 @@ class ObjectDetector:
                         detected_data = detected_goal_posts
                     case ObjectType.ROBOT:
                         detected_data = detected_robots
-                    case ObjectType.BLUE:
-                        detected_data = detected_blue_shirts
-                    case ObjectType.RED:
-                        detected_data = detected_red_shirts
+                    case ObjectType.LINES:
+                        detected_data = detected_lines
                     case ObjectType.PERSON:
                         detected_data = detected_humans
 
                 if detected_data is not None:
                     detected_data.append([int(cls), round(confidence, 2), int(x1), int(y1), int(x2), int(y2), cam_index])
-                    
-                    if not self._filter_by_type(FramesMix.DEPTH_COLOR, result):
+                    detected_object_element = [x1, y1, x2, y2, conf, cls]
+                    if not self._filter_by_type(FramesMix.DEPTH_COLOR, detected_object_element):
                         continue
 
                     detected_objects.append(
-                        self._map_result_to_object(FramesMix.DEPTH_COLOR, [x1, y1, x2, y2, conf, cls], source=cam_index + 1)
+                        self._map_result_to_object(FramesMix.DEPTH_COLOR, detected_object_element, source=cam_index + 1)
                     )
 
         return detected_objects, (detected_balls, detected_goal_posts, detected_robots, detected_blue_shirts, detected_red_shirts, detected_humans)
@@ -169,10 +168,11 @@ class ObjectDetector:
             conf=0.5,
             verbose=False,
             device=0,
-            half=False,
+            half=True,
             int8=False,
             agnostic_nms=True,
-            imgsz=640,
+            imgsz=(480, 640),
+            batch=4,
         )
 
         realsense_index: int = 0

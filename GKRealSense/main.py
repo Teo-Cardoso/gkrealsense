@@ -20,10 +20,9 @@ def main():
 
     realsense = RealSenseHandler(RealSenseConfig())
     obj_detector = ObjectDetector(
-        color_model_name="/workspaces/neno_ws/best_with_lines.pt",
-        ir_model_name="/workspaces/neno_ws/best_300ep.pt",
+        color_model_name="/home/robot3/Downloads/model4_480_640_half/noshirts11n21042025.engine",
+        ir_model_name="/home/robot3/Downloads/model4_480_640_half/noshirts11n21042025.engine",
     )
-
     obj_pose_estimator = ObjectPoseEstimator(
         realsense.depth_intrinsics,
         color_intrinsics=realsense.color_intrinsics,
@@ -38,7 +37,7 @@ def main():
     if VISUALIZE:
         visualize_engine = field_visualizer.Engine()
 
-    threecameras = threecameras_handler.ThreeCamerasHandler()
+    threecameras = threecameras_handler.ThreeCamerasHandler(angles_file="/home/robot3/MSL_2025/Detection-Tracking/Angulos-claud.txt", distances_file="/home/robot3/MSL_2025/Detection-Tracking/Distancias-claud.txt")
 
     frame_count: int = 0
     start_time = time.perf_counter()
@@ -73,6 +72,7 @@ def main():
 
         classify_loop_start = time.perf_counter()
         ball_candidates, closest_ball, closest_ball_by_time = ball_classifier.classify(track_result)
+        print(closest_ball_by_time)
         print(f"[{frame_count}] Ball classifier time: {1000 * (time.perf_counter() - classify_loop_start):.2f} ms")
 
         if VISUALIZE:
@@ -99,50 +99,91 @@ def main():
                     file.write(",")
                 file.write("]\n")
                 
+        # sources = [second_image, *threecameras_frames]
+        # for obj_index in range(len(realsense_result)):
+        #     x1, y1, x2, y2 = realsense_result[obj_index].box
+        #     cv2.circle(
+        #         second_image,
+        #         (int((x1 + x2) / 2), int((y1 + y2) / 2)),
+        #         5,
+        #         (0, 255, 0),
+        #         -1,
+        #     )
+
+        #     label = f"{str(realsense_result[obj_index].type)}:{realsense_result[obj_index].confidence:.2f}"
+        #     cv2.putText(
+        #         second_image,
+        #         label,
+        #         (x1, y1 - 10),
+        #         cv2.FONT_HERSHEY_SIMPLEX,
+        #         0.5,
+        #         (0, 255, 0),
+        #         2,
+        #     )
+
+        #     x, y, z = list(realsense_result_pose[obj_index].position)
+        #     if x == None or y == None or z == None:
+        #         x, y, z = 0, 0, 0
+
+        #     cv2.putText(
+        #         second_image,
+        #         f"{x:.2f}, {y:.2f}, {z:.2f}",
+        #         (x1, y2 + 10),
+        #         cv2.FONT_HERSHEY_SIMPLEX,
+        #         0.5,
+        #         (0, 255, 0),
+        #         2,
+        #     )
+
+        # for obj_index in range(len(threecamera_result[0])):
+        #     x1, y1, x2, y2 = threecamera_result[0][obj_index].box
+        #     cv2.circle(
+        #         sources[threecamera_result[0][obj_index].source],
+        #         (int((x1 + x2) / 2), int((y1 + y2) / 2)),
+        #         5,
+        #         (0, 255, 0),
+        #         -1,
+        #     )
+
+        #     label = f"{str(threecamera_result[0][obj_index].type)}:{threecamera_result[0][obj_index].confidence:.2f}"
+        #     cv2.putText(
+        #         sources[threecamera_result[0][obj_index].source],
+        #         label,
+        #         (x1, y1 - 10),
+        #         cv2.FONT_HERSHEY_SIMPLEX,
+        #         0.5,
+        #         (0, 255, 0),
+        #         2,
+        #     )
+
+        #     x, y, z = list(threecamera_result_pose[obj_index].position)
+        #     if x == None or y == None or z == None:
+        #         x, y, z = 0, 0, 0
+
+        #     cv2.putText(
+        #         sources[threecamera_result[0][obj_index].source],
+        #         f"{x:.2f}, {y:.2f}, {z:.2f}",
+        #         (x1, y2 + 10),
+        #         cv2.FONT_HERSHEY_SIMPLEX,
+        #         0.5,
+        #         (0, 255, 0),
+        #         2,
+        #     )
         
-        for obj_index in range(len(realsense_result)):
-            x1, y1, x2, y2 = realsense_result[obj_index].box
-            cv2.circle(
-                second_image,
-                (int((x1 + x2) / 2), int((y1 + y2) / 2)),
-                5,
-                (0, 255, 0),
-                -1,
-            )
+        # if SAVE_DATA:
+        #     with open(f"image_data_{first_timestamp}.txt", "a") as img_file:
+        #         img_file.write(f"timestamp: {timestamp}, image: [")
+        #         img_file.write(str(second_image.tobytes()))
+        #         img_file.write("]\n")
 
-            label = f"{str(realsense_result[obj_index].type)}:{realsense_result[obj_index].confidence:.2f}"
-            cv2.putText(
-                second_image,
-                label,
-                (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 255, 0),
-                2,
-            )
-
-            x, y, z = list(result_pose[obj_index].position)
-            cv2.putText(
-                second_image,
-                f"{x:.2f}, {y:.2f}, {z:.2f}",
-                (x1, y2 + 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 255, 0),
-                2,
-            )
-        
-        if SAVE_DATA:
-            with open(f"image_data_{first_timestamp}.txt", "a") as img_file:
-                img_file.write(f"timestamp: {timestamp}, image: [")
-                img_file.write(str(second_image.tobytes()))
-                img_file.write("]\n")
-
-        cv2.imshow("Depth", np.asanyarray(depth_frame.get_data()))
-        if frames_mix == FramesMix.DEPTH_COLOR:
-            cv2.imshow("Color", second_image)
-        else:
-            cv2.imshow("Infrared", second_image)
+        # cv2.imshow("Depth", np.asanyarray(depth_frame.get_data()))
+        # if frames_mix == FramesMix.DEPTH_COLOR:
+        #     cv2.imshow("Color", second_image)
+        # else:
+        #     cv2.imshow("Infrared", second_image)
+        # cv2.imshow("ThreeCamera1", sources[1])
+        # cv2.imshow("ThreeCamera2", sources[2])
+        # cv2.imshow("ThreeCamera3", sources[3])
 
         frame_count += 1
         elapsed_time = time.perf_counter() - start_time
