@@ -106,7 +106,7 @@ class ObjectDetector:
         return detected_objects
 
     def _parse_threecamera_results(self, threecamera_results: list[list[ultralytics.engine.results .Results]]) -> tuple[list[DetectedObject], tuple[list]]:
-        detected_objects: list[list[DetectedObject]] = [[], [], []]
+        detected_objects: list[DetectedObject] = []
         
         detected_balls = []
         detected_goal_posts =[]
@@ -141,7 +141,7 @@ class ObjectDetector:
                     if not self._filter_by_type(FramesMix.DEPTH_COLOR, detected_object_element):
                         continue
 
-                    detected_objects[cam_index].append(
+                    detected_objects.append(
                         self._map_result_to_object(FramesMix.DEPTH_COLOR, detected_object_element, source=cam_index + 1)
                     )
 
@@ -181,7 +181,7 @@ class ObjectDetector:
         if not only_realsense:
             threecamera_results = self._parse_threecamera_results(results[realsense_index + 1 : realsense_index + 4])
         else:
-            threecamera_results = ([[], [], []], None)
+            threecamera_results = [[]]
 
         return realsense_results, threecamera_results
         

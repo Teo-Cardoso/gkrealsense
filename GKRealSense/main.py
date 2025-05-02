@@ -61,12 +61,9 @@ def main():
         realsense_result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
             np.eye(4), depth_frame, realsense_result
         )
-        threecamera_result_pose: list[list[ObjectWithPosition]] = threecameras.get_objects_position(np.eye(4), threecamera_result[0])
+        threecamera_result_pose: list[ObjectWithPosition] = threecameras.get_objects_position(np.eye(4), threecamera_result[0])
 
-        measurements = [(timestamp, realsense_result_pose)]
-        for cam_index in range(len(threecamera_result_pose)):
-            if len(threecamera_result_pose[cam_index]) != 0:
-                measurements.append((threecamera_timestamp, threecamera_result_pose[cam_index]))
+        measurements = [(timestamp, realsense_result_pose), (threecamera_timestamp, threecamera_result_pose)]
         measurements.sort(key=lambda x: x[0])
         
         track_loop_start = time.perf_counter()
