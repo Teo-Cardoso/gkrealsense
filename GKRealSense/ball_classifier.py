@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
+import math
 
 import numpy as np
 from object_detector import ObjectType
@@ -133,16 +134,18 @@ class BallClassifier:
         if ball.properties.distance_to_goal < self.closest_ball[1]:
             self.closest_ball = (ball.object_id, ball.properties.distance_to_goal)
 
+
+        # Facilitar a entrada dos ifs caso ja esteja na categoria
         if ball.dynamics.velocity[0] > self.VX_THRESHOLD_GOING:
             ball.properties.cycles_going = min(10, ball.properties.cycles_going + 1)
-            ball.properties.cycles_coming = 0
+            ball.properties.cycles_coming = math.floor(ball.properties.cycles_coming / 2)
             ball.properties.time_to_goal = float("inf")
             ball.properties.crossing_point = np.array([float("inf"), float("inf"), float("inf")])
             return
         
         if ball.dynamics.velocity[0] < -self.VX_THRESHOLD_COMING:
             ball.properties.cycles_coming = min(10, ball.properties.cycles_coming + 1)
-            ball.properties.cycles_going = 0
+            ball.properties.cycles_going = math.floor(ball.properties.cycles_going / 2)
             
             # Compute crossing point
             relative_position = ball.dynamics.position - self.goal_center
