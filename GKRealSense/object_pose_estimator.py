@@ -34,7 +34,11 @@ class ObjectPoseEstimator:
 
     def _compute_variance(self, position: np.ndarray) -> np.ndarray:
         """Compute variance of the position"""
-        return np.array([[min(0.15 * position[0], 0.65), 0.25, 0.25]])
+        if position[0] is None:
+            return np.array([[0.0, 0.0, 0.0]])
+
+        value = min(0.035 * position[0]**2, 0.65)
+        return np.array([[value, value, value]])
 
     def _map_detected_object_to_object_with_position(
         self, camera_to_world: np.ndarray, depth_frame: rs.depth_frame, detected_object: DetectedObject
@@ -82,9 +86,13 @@ class ObjectPoseEstimator:
             y_distance = np.mean(distances[1])
             z_distance = np.mean(distances[2])
 
-        position = np.array([[x_distance, y_distance, z_distance, 1]]).transpose()
-        position = np.dot(camera_to_world, position)
-        position = position[:3].flatten()
+        if z_distance <= 0.0:
+            position = np.array([None, None, None])
+        else:
+            position = np.array([[x_distance, y_distance, z_distance, 1]]).transpose()
+            position = np.dot(camera_to_world, position)
+            position = position[:3].flatten()
+
         return ObjectWithPosition(
             detected_object.type,
             position,

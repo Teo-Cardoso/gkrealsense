@@ -42,8 +42,6 @@ class TrackedObject:
 
 
 class ObjectTracker:
-    INVALID_OBJECT_DISTANCE_THRESHOLD: float = 0.05
-
     def __init__(self):
         self.tracked_objects: list[TrackedObject] = []
         self.last_timestamp: int = 0
@@ -93,7 +91,7 @@ class ObjectTracker:
         if len_tracked_objects == 0:
             # If we don't have any tracked object, we need to create one for each measurement
             for measurement in measurements:
-                if measurement.position[0] < self.INVALID_OBJECT_DISTANCE_THRESHOLD:
+                if measurement.position[0] is None:
                     # Invalid measurement, skip it
                     continue
 
@@ -116,7 +114,7 @@ class ObjectTracker:
 
         # 2.2 For each measurement we compute the cost of association with the tracked objects
         for index, measurement in enumerate(measurements):
-            if measurement.position[0] < self.INVALID_OBJECT_DISTANCE_THRESHOLD:
+            if measurement.position[0] is None:
                 # Invalid measurement, keep the cost at infinity
                 continue
 
@@ -139,7 +137,7 @@ class ObjectTracker:
             if cost_matrix[associated_object_index, measurement_association_index] == 1e9:
                 # This measurement is not associated with any tracked object
                 # So we create a new tracked object
-                if measurements[measurement_association_index].position[0] >= self.INVALID_OBJECT_DISTANCE_THRESHOLD:
+                if measurements[measurement_association_index].position[0] is not None:
                     self._create_new_tracked_object(
                         measurements[measurement_association_index],
                         timestamp=timestamp,

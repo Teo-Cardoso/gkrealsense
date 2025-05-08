@@ -47,6 +47,8 @@ def main():
     start_time = time.perf_counter()
     first_timestamp = time.time_ns()
     average_times = {
+        "waiting_realsense": 0,
+        "waiting_threecameras": 0,
         "detect": 0,
         "getposition": 0,
         "track": 0,
@@ -58,18 +60,24 @@ def main():
     robot_location[0, 3] = 0.0
 
     while True:
+        waiting_realsense_start = time.perf_counter()
         timestamp, frames_mix, depth_frame, second_frame = realsense.get_frames()
 
         second_image = np.asanyarray(second_frame.get_data())
         if frames_mix == FramesMix.DEPTH_INFRARED:
             second_image = cv2.cvtColor(second_image, cv2.COLOR_GRAY2BGR)
 
+        average_times["waiting_realsense"] += time.perf_counter() - waiting_realsense_start
+
+        waiting_threecameras_start = time.perf_counter()
         threecamera_timestamp, threecameras_frames = threecameras.get_images()
+        average_times["waiting_threecameras"] += time.perf_counter() - waiting_threecameras_start
 
         image_sources = [second_image, *threecameras_frames]
         
         detect_loop_start = time.perf_counter()
         realsense_result, threecamera_result = obj_detector.detect(frames_mix, image_sources)
+        print(f"Realsense result: {realsense_result}")
         average_times["detect"] += time.perf_counter() - detect_loop_start
 
         getposition_loop_start = time.perf_counter()
@@ -102,6 +110,7 @@ def main():
             visualize_engine.clear()
             visualize_engine.add_goalkeeper(field_visualizer.Goalkeeper(visualize_engine, field_visualizer.Point(robot_location[0, 3], robot_location[1, 3])))
             visualize_engine.add_goalkeeper(field_visualizer.Goalkeeper(visualize_engine, field_visualizer.Point(*control_action.target), (255, 0, 0)))
+
             for ball_id in ball_candidates:
                 if ball_candidates[ball_id].properties.trustiness <= 0.2:
                     continue
@@ -224,11 +233,18 @@ def main():
             start_time = time.perf_counter()
 
             print(f"FPS: {fps:.2f}")
+            print(f"Average waiting realsense time: {1000 * average_times['waiting_realsense']:.2f} ms")
+            print(f"Average waiting threecameras time: {1000 * average_times['waiting_threecameras']:.2f} ms")
             print(f"Detect time: {1000 * average_times['detect']:.2f} ms")
             print(f"Get position time: {1000 * average_times['getposition']:.2f} ms")
             print(f"Track time: {1000 * average_times['track']:.2f} ms")
+            print(f"Classify time: {1000 * average_times['classify']:.2f} ms")
+            print(f"Behavior time: {1000 * average_times['behavior']:.2f} ms")
+            print(f"Total time: {1000 * (average_times['waiting_realsense'] + average_times['waiting_threecameras'] + average_times['detect'] + average_times['getposition'] + average_times['track'] + average_times['classify'] + average_times['behavior']):.2f} ms")
 
             average_times = {
+                "waiting_realsense": 0,
+                "waiting_threecameras": 0,
                 "detect": 0,
                 "getposition": 0,
                 "track": 0,

@@ -31,7 +31,6 @@ class ThreeCamerasHandler:
     # Adicionar os valores de ângulo à matriz    
     def get_images(self) -> list[np.ndarray]:
         metadata, frames = self.ipc.receive_image()
-        # Should we wait or skip the frame?
         while metadata.timestamp == self.last_timestamp:
             metadata, frames = self.ipc.receive_image()
 

@@ -63,15 +63,20 @@ class ObjectDetector:
 
         self.ir_model = ultralytics.YOLO(ir_model_name, task="detect")
         self.ir_classes = [ObjectType.BALL, ObjectType.PERSON, ObjectType.ROBOT]
+        self.allowed_types = [
+            ObjectType.BALL,
+            # ObjectType.PERSON,
+            # ObjectType.ROBOT
+        ]
         self.source_supress_list = [1, 3]
         self.source_supress_index = 0
 
     def _get_class(self, using_color: bool, class_id: int) -> ObjectType:
         # TO FIX: Fix the index to match correctly with the correct class
         if using_color:
-            return self.color_classes[min(class_id, 2)]
+            return self.color_classes[class_id]
         else:
-            return self.ir_classes[min(class_id, 2)]
+            return self.ir_classes[class_id]
 
     def _map_result_to_object(
         self, source_type: FramesMix, result: list[float], source: int
@@ -85,7 +90,7 @@ class ObjectDetector:
         self, source_type: FramesMix, result: list[float]
     ) -> list[DetectedObject]:
         type = self._get_class(source_type == FramesMix.DEPTH_COLOR, int(result[5]))
-        return type == ObjectType.BALL
+        return type in self.allowed_types
 
     def _parse_realsense_results(self, realsense_results: list[ultralytics.engine.results.Results], source_type: FramesMix) -> list[DetectedObject]:
         REALSENSE_INDEX: int = 0

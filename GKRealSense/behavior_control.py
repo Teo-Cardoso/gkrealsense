@@ -65,7 +65,7 @@ class BehaviorControl:
         Compute the target position for defence action.
         """
         # Placeholder for actual computation
-        return ball.dynamics.position[0], ball.dynamics.position[1]
+        return self._compute_target_predefence(ball)
     
     def control(self, closest_ball: BallClassifiedObject) -> BahaviorControlAction:
         """
@@ -84,7 +84,7 @@ class BehaviorControl:
                 target = self._compute_target_predefence(closest_ball)
                 arm = Arm.NONE
             case ActionStatus.DEFENCE:
-                target = closest_ball.dynamics.position
-                arm = Arm.RIGHT
+                target = self._compute_target_defence(closest_ball)
+                arm = Arm.NONE
 
         return BahaviorControlAction(action, target, arm)
