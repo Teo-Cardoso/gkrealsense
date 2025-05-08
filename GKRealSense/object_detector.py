@@ -72,7 +72,6 @@ class ObjectDetector:
         self.source_supress_index = 0
 
     def _get_class(self, using_color: bool, class_id: int) -> ObjectType:
-        # TO FIX: Fix the index to match correctly with the correct class
         if using_color:
             return self.color_classes[class_id]
         else:
