@@ -3,6 +3,7 @@ from object_detector import ObjectDetector, DetectedObject, ObjectType
 from object_pose_estimator import ObjectPoseEstimator, ObjectWithPosition
 from object_tracker import ObjectTracker
 from ball_classifier import BallClassifier, BallClassifiedObject
+from behavior_control import ActionStatus, BehaviorControl, BahaviorControlAction
 import field_visualizer
 
 import cv2
@@ -35,6 +36,8 @@ def main():
 
     ball_classifier = BallClassifier()
 
+    behavior_controller = BehaviorControl()
+
     if VISUALIZE_FIELD:
         visualize_engine = field_visualizer.Engine()
 
@@ -48,6 +51,7 @@ def main():
         "getposition": 0,
         "track": 0,
         "classify": 0,
+        "behavior": 0,
     }
 
     robot_location = np.eye(4)
@@ -86,9 +90,18 @@ def main():
         ball_candidates, closest_ball, closest_ball_by_time = ball_classifier.classify(track_result)
         average_times["classify"] += time.perf_counter() - classify_loop_start
 
+        behavior_loop_start = time.perf_counter()
+        target_ball_index = closest_ball_by_time[0] if (closest_ball_by_time[0] is not None) else None
+        target_ball_index = closest_ball[0] if (target_ball_index is None) else target_ball_index
+        
+        target_ball = ball_candidates.get(target_ball_index, None)
+        control_action: BahaviorControlAction = behavior_controller.control(closest_ball=target_ball)
+        average_times["behavior"] += time.perf_counter() - behavior_loop_start
+
         if VISUALIZE_FIELD:
             visualize_engine.clear()
             visualize_engine.add_goalkeeper(field_visualizer.Goalkeeper(visualize_engine, field_visualizer.Point(robot_location[0, 3], robot_location[1, 3])))
+            visualize_engine.add_goalkeeper(field_visualizer.Goalkeeper(visualize_engine, field_visualizer.Point(*control_action.target), (255, 0, 0)))
             for ball_id in ball_candidates:
                 if ball_candidates[ball_id].properties.trustiness <= 0.2:
                     continue
@@ -220,6 +233,7 @@ def main():
                 "getposition": 0,
                 "track": 0,
                 "classify": 0,
+                "behavior": 0,
             }
 
         key = cv2.waitKey(1)

@@ -328,7 +328,7 @@ class Ball(pygame.sprite.Sprite):
         self.engine.screen.blit(ball_status_text_down, (self.rect.center[0], self.rect.center[1] + 10))
     
 class Goalkeeper(pygame.sprite.Sprite):
-    def __init__(self, engine: Engine, position_field: Point):
+    def __init__(self, engine: Engine, position_field: Point, color: tuple[int, int, int] = (0, 0, 255)):
         super().__init__()
         self.engine = engine
         self.GOAL_CENTER = Point(0, 7)
@@ -339,9 +339,9 @@ class Goalkeeper(pygame.sprite.Sprite):
             position=position_field, velocity=Point(0, 0), acceleration=Point(0, 0)
         )
 
-        self.create_image(position_field)
+        self.create_image(position_field, color)
 
-    def create_image(self, position_field: Point):
+    def create_image(self, position_field: Point, color: tuple[int, int, int]):
         self.width = 0.52 * self.engine.get_scale()  # 0.52 meters
         self.height = 0.52 * self.engine.get_scale()
         self.board_width = 1  # 1 pixel
@@ -356,7 +356,7 @@ class Goalkeeper(pygame.sprite.Sprite):
 
         pygame.draw.circle(
             self.image,
-            (0, 0, 255),
+            color,
             (self.width // 2, self.height // 2),
             (self.width - self.board_width) // 2,
         )
@@ -396,7 +396,7 @@ if __name__ == "__main__":
 
     ball = Ball(engine, ball_classification)
     goalkeeper = Goalkeeper(engine, Point(0, 0))
-
+    goalkeeper_target = Goalkeeper(engine, Point(1.0, -0.5), (255, 0, 0))
     engine.add_ball(ball)
     engine.add_goalkeeper(goalkeeper)
     while engine.run():
@@ -404,6 +404,7 @@ if __name__ == "__main__":
         engine.clear()
         engine.add_ball(ball)
         engine.add_goalkeeper(goalkeeper)
+        engine.add_goalkeeper(goalkeeper_target)
         
 
 
