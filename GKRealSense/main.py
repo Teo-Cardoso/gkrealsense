@@ -252,9 +252,10 @@ def main():
                 "behavior": 0,
             }
 
-        key = cv2.waitKey(1)
-        if key == ord('q'):   
-            break
+        if VISUALIZE_CAMS:
+            key = cv2.waitKey(1)
+            if key == ord('q'):   
+                break
 
 
 if __name__ == "__main__":
