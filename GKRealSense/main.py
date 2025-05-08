@@ -77,7 +77,6 @@ def main():
         
         detect_loop_start = time.perf_counter()
         realsense_result, threecamera_result = obj_detector.detect(frames_mix, image_sources)
-        print(f"Realsense result: {realsense_result}")
         average_times["detect"] += time.perf_counter() - detect_loop_start
 
         getposition_loop_start = time.perf_counter()
