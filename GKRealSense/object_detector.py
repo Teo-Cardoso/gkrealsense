@@ -15,7 +15,14 @@ from realsense_handler import FramesMix
 import ultralytics
 import numpy as np
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, IntEnum
+
+
+class Source(IntEnum):
+    REALSENSE = 0
+    CAM_1 = 1
+    CAM_2 = 2
+    CAM_3 = 3
 
 
 class ObjectType(Enum):
@@ -36,22 +43,11 @@ class DetectedObject:
     confidence: float
     # The Box is a tuple of 4 integers: x1, y1, x2, y2
     box: tuple[int, int, int, int]  # TO THINK: Should we create a type for this?
-    source: int
+    source: Source
 
 
 class ObjectDetector:
-    def __init__(self, color_model_name: str, ir_model_name: str, color_full_model_name: str = ""):
-        if color_full_model_name == "":
-            color_full_model_name = color_model_name
-        self.color_full_model = ultralytics.YOLO(color_full_model_name, task="detect")
-        self.color_full_classes = [
-            ObjectType.BALL,
-            ObjectType.GOAL_POSTS,
-            ObjectType.LINES,
-            ObjectType.PERSON,
-            ObjectType.ROBOT
-        ]
-
+    def __init__(self, color_model_name: str):
         self.color_model = ultralytics.YOLO(color_model_name, task="detect")
         self.color_classes = [
             ObjectType.BALL,
@@ -61,8 +57,6 @@ class ObjectDetector:
             ObjectType.ROBOT
         ]
 
-        self.ir_model = ultralytics.YOLO(ir_model_name, task="detect")
-        self.ir_classes = [ObjectType.BALL, ObjectType.PERSON, ObjectType.ROBOT]
         self.allowed_types = [
             ObjectType.BALL,
             # ObjectType.PERSON,
@@ -71,28 +65,20 @@ class ObjectDetector:
         self.source_supress_list = [1, 3]
         self.source_supress_index = 0
 
-    def _get_class(self, using_color: bool, class_id: int) -> ObjectType:
-        if using_color:
-            return self.color_classes[class_id]
-        else:
-            return self.ir_classes[class_id]
+    def _get_class(self, class_id: int) -> ObjectType:
+        return self.color_classes[class_id]
 
-    def _map_result_to_object(
-        self, source_type: FramesMix, result: list[float], source: int
-    ) -> DetectedObject:
-        confidence = result[4]
-        type = self._get_class(source_type == FramesMix.DEPTH_COLOR, int(result[5]))
-        box = tuple(map(lambda x: int(x), result[:4]))
+    def _map_result_to_object(self, result: list[float], source: Source) -> DetectedObject:
+        confidence: float = result[4]
+        type: ObjectType = self._get_class(int(result[5]))
+        box: tuple[int, int, int, int] = tuple(map(lambda x: int(x), result[:4]))
         return DetectedObject(type, confidence, box, source)
     
-    def _filter_by_type(
-        self, source_type: FramesMix, result: list[float]
-    ) -> list[DetectedObject]:
-        type = self._get_class(source_type == FramesMix.DEPTH_COLOR, int(result[5]))
+    def _filter_by_type(self, result: list[float]) -> list[DetectedObject]:
+        type: ObjectType = self._get_class(int(result[5]))
         return type in self.allowed_types
 
-    def _parse_realsense_results(self, realsense_results: list[ultralytics.engine.results.Results], source_type: FramesMix) -> list[DetectedObject]:
-        REALSENSE_INDEX: int = 0
+    def _parse_realsense_results(self, realsense_results: list[ultralytics.engine.results.Results]) -> list[DetectedObject]:
         detected_objects: list[DetectedObject] = []
         result_size: int = len(realsense_results)
         for result_index in range(result_size):
@@ -101,33 +87,30 @@ class ObjectDetector:
             if len(result_data) == 0:
                 continue
 
-            for result in result_data:
-                if not self._filter_by_type(source_type, result):
-                    continue
+            if not self._filter_by_type(result_data[0]):
+                continue
 
-                detected_objects.append(
-                    self._map_result_to_object(source_type, result, source=REALSENSE_INDEX)
-                )
+            detected_objects.append(
+                self._map_result_to_object(result_data[0], source=Source.REALSENSE)
+            )
 
         return detected_objects
 
-    def _parse_threecamera_results(self, threecamera_results: list[list[ultralytics.engine.results .Results]]) -> tuple[list[DetectedObject], tuple[list]]:
+    def _parse_threecamera_results(self, threecamera_results: list[list[ultralytics.engine.results.Results]], sources_id: list[Source]) -> tuple[list[DetectedObject], tuple[list]]:
         detected_objects: list[DetectedObject] = []
         
         detected_balls = []
         detected_goal_posts =[]
         detected_robots = []
-        detected_blue_shirts = []
-        detected_red_shirts = []
         detected_humans = []
         detected_lines = []
         
-        for cam_index, result in enumerate(threecamera_results):
+        for result, cam_source  in zip(threecamera_results, sources_id):
             result_size: int = len(result)
             for result_index in range(result_size):
                 x1, y1, x2, y2, conf, cls = result[result_index].boxes.data.tolist()[0]
                 confidence = float(conf)
-                object_class: ObjectType = self.color_full_classes[int(cls)]
+                object_class: ObjectType = self._get_class(int(cls))
                 detected_data = None
                 match object_class:
                     case ObjectType.BALL:
@@ -141,43 +124,35 @@ class ObjectDetector:
                     case ObjectType.PERSON:
                         detected_data = detected_humans
 
-                if detected_data is not None:
-                    real_cam_index = 0
-                    supressed_source = self.source_supress_list[self.source_supress_index]
-                    if supressed_source <= (cam_index + 1):
-                        real_cam_index = cam_index + 1
-                    else:
-                        real_cam_index = cam_index
-                    
-                    detected_data.append([int(cls), round(confidence, 2), int(x1), int(y1), int(x2), int(y2), real_cam_index])
-                    detected_object_element = [x1, y1, x2, y2, conf, cls]
-                    if not self._filter_by_type(FramesMix.DEPTH_COLOR, detected_object_element):
-                        continue
-                    
-                    detected_objects.append(
-                        self._map_result_to_object(FramesMix.DEPTH_COLOR, detected_object_element, source=real_cam_index + 1)
-                    )
+                if detected_data is None:
+                    continue
+               
+                detected_data.append([int(cls), round(confidence, 2), int(x1), int(y1), int(x2), int(y2), int(cam_source) - 1])
+                detected_object_element = [x1, y1, x2, y2, conf, cls]
+                if not self._filter_by_type(detected_object_element):
+                    continue
+                
+                detected_objects.append(
+                    self._map_result_to_object(detected_object_element, source=cam_source)
+                )
 
-        return detected_objects, (detected_balls, detected_goal_posts, detected_robots, detected_blue_shirts, detected_red_shirts, detected_humans)
+        return detected_objects, (detected_balls, detected_goal_posts, detected_robots, detected_humans, detected_lines)
 
     def detect(
-        self, source_type: FramesMix, source: list[np.ndarray]
+        self, source: list[np.ndarray], sources_id: list[Source] = []
     ) -> list[list[DetectedObject]]:
         """Detect objects in the frame"""
-        model = None
-        only_realsense = len(source) == 1
-        if only_realsense:
-            # Only Using RealSense
-            model: ultralytics.YOLO = (
-                self.color_model if source_type == FramesMix.DEPTH_COLOR else self.ir_model
-            )
-        else:
-            # Using Three Cameras
-            model: ultralytics.YOLO = self.color_full_model
-        
-        source.pop(self.source_supress_list[self.source_supress_index])
+        assert len(source) == len(sources_id), "source and sources_id must have the same length"
 
-        results: list[list[ultralytics.engine.results.Results]] = model.predict(
+        if len(source) == 0:
+            return [], ([], ([], [], [], [], []))
+
+        realsense_supressed: bool = sources_id[0] != Source.REALSENSE
+        if not realsense_supressed:
+            source.pop(self.source_supress_list[self.source_supress_index])
+            sources_id.pop(self.source_supress_list[self.source_supress_index])
+
+        results: list[list[ultralytics.engine.results.Results]] = self.color_model.predict(
             source=source,
             conf=0.5,
             verbose=False,
@@ -189,14 +164,13 @@ class ObjectDetector:
             batch=3,
         )
 
-        realsense_index: int = 0
-        realsense_results = self._parse_realsense_results(results[realsense_index], source_type)
-
-        if not only_realsense:
-            threecamera_results = self._parse_threecamera_results(results[realsense_index + 1 : realsense_index + 3])
+        if not realsense_supressed:
+            realsense_results = self._parse_realsense_results(results[int(Source.REALSENSE)])
+            threecamera_results = self._parse_threecamera_results(results[1:3], sources_id[1:3])
+            self.source_supress_index = (self.source_supress_index + 1) % len(self.source_supress_list)
         else:
-            threecamera_results = [[]]
+            realsense_results = []
+            threecamera_results = self._parse_threecamera_results(results, sources_id)
 
-        self.source_supress_index = (self.source_supress_index + 1) % len(self.source_supress_list)
         return realsense_results, threecamera_results
         

@@ -1,5 +1,5 @@
 from realsense_handler import RealSenseHandler, RealSenseConfig, FramesMix
-from object_detector import ObjectDetector, DetectedObject, ObjectType
+from object_detector import ObjectDetector, DetectedObject, ObjectType, Source
 from object_pose_estimator import ObjectPoseEstimator, ObjectWithPosition
 from object_tracker import ObjectTracker
 from ball_classifier import BallClassifier, BallClassifiedObject
@@ -17,13 +17,12 @@ except Exception as e:
 
 def main():
     SAVE_DATA = False
-    VISUALIZE_FIELD = True
+    VISUALIZE_FIELD = False
     VISUALIZE_CAMS = False
 
     realsense = RealSenseHandler(RealSenseConfig())
     obj_detector = ObjectDetector(
         color_model_name="/home/robot3/Downloads/model3/noshirts11n21042025.engine",
-        ir_model_name="/home/robot3/Downloads/model3/noshirts11n21042025.engine",
     )
     obj_pose_estimator = ObjectPoseEstimator(
         realsense.depth_intrinsics,
@@ -59,33 +58,44 @@ def main():
     robot_location = np.eye(4)
     robot_location[0, 3] = 0.0
 
+    realsense_switch: int = 0
+    realsense_switch_period: int = 2
     while True:
+        image_sources = []
+        images_sources_ids = []
+
         waiting_realsense_start = time.perf_counter()
-        timestamp, frames_mix, depth_frame, second_frame = realsense.get_frames()
-
-        second_image = np.asanyarray(second_frame.get_data())
-        if frames_mix == FramesMix.DEPTH_INFRARED:
-            second_image = cv2.cvtColor(second_image, cv2.COLOR_GRAY2BGR)
-
-        average_times["waiting_realsense"] += time.perf_counter() - waiting_realsense_start
+        if realsense_switch == 0:
+            timestamp, depth_frame, second_frame = realsense.get_frames()
+            second_image = np.asanyarray(second_frame.get_data())
+  
+            image_sources.append(second_image)
+            images_sources_ids.append(Source.REALSENSE)
+            average_times["waiting_realsense"] += time.perf_counter() - waiting_realsense_start
 
         waiting_threecameras_start = time.perf_counter()
         threecamera_timestamp, threecameras_frames = threecameras.get_images()
         average_times["waiting_threecameras"] += time.perf_counter() - waiting_threecameras_start
 
-        image_sources = [second_image, *threecameras_frames]
-        
+        image_sources.extend(threecameras_frames)
+        images_sources_ids.extend([Source.CAM_1, Source.CAM_2, Source.CAM_3])
+
         detect_loop_start = time.perf_counter()
-        realsense_result, threecamera_result = obj_detector.detect(frames_mix, image_sources)
+        realsense_result, threecamera_result = obj_detector.detect(image_sources, sources_id=images_sources_ids)
         average_times["detect"] += time.perf_counter() - detect_loop_start
 
         getposition_loop_start = time.perf_counter()
-        realsense_result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
-            robot_location, depth_frame, realsense_result
-        )
+        measurements = []
+        if realsense_switch == 0:
+            realsense_result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
+                robot_location, depth_frame, realsense_result
+            )
+            measurements.append((timestamp, realsense_result_pose))
+        realsense_switch = (realsense_switch + 1) % realsense_switch_period
+
         threecamera_result_pose: list[ObjectWithPosition] = threecameras.get_objects_position(robot_location, threecamera_result[0])
 
-        measurements = [(timestamp, realsense_result_pose), (threecamera_timestamp, threecamera_result_pose)]
+        measurements.append((threecamera_timestamp, threecamera_result_pose))
         measurements.sort(key=lambda x: x[0])
         average_times["getposition"] += time.perf_counter() - getposition_loop_start
 

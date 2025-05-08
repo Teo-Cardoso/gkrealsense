@@ -28,7 +28,6 @@ class ThreeCamerasHandler:
                 distancias = [float(distancia) for distancia in line.strip().split('\t')]
                 self.distances.append(distancias)
 
-    # Adicionar os valores de ângulo à matriz    
     def get_images(self) -> list[np.ndarray]:
         metadata, frames = self.ipc.receive_image()
         while metadata.timestamp == self.last_timestamp:
