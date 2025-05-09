@@ -66,7 +66,7 @@ def main():
 
         waiting_realsense_start = time.perf_counter()
         if realsense_switch == 0:
-            timestamp, depth_frame, second_frame = realsense.get_frames()
+            timestamp, future_depth_frame, second_frame = realsense.get_frames()
             second_image = np.asanyarray(second_frame.get_data())
   
             image_sources.append(second_image)
@@ -87,6 +87,7 @@ def main():
         getposition_loop_start = time.perf_counter()
         measurements = []
         if realsense_switch == 0:
+            depth_frame = future_depth_frame.result().get_depth_frame()
             realsense_result_pose: list[ObjectWithPosition] = obj_pose_estimator.estimate_position(
                 robot_location, depth_frame, realsense_result
             )
@@ -225,10 +226,7 @@ def main():
 
         if VISUALIZE_CAMS:
             cv2.imshow("Depth", np.asanyarray(depth_frame.get_data()))
-            if frames_mix == FramesMix.DEPTH_COLOR:
-                cv2.imshow("Color", second_image)
-            else:
-                cv2.imshow("Infrared", second_image)
+            cv2.imshow("Color", second_image)
             cv2.imshow("ThreeCamera1", sources[1])
             cv2.imshow("ThreeCamera2", sources[2])
             cv2.imshow("ThreeCamera3", sources[3])

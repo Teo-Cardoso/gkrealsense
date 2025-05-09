@@ -2,6 +2,7 @@ from enum import Enum
 from dataclasses import dataclass
 import pyrealsense2 as rs
 import time
+from concurrent.futures import ThreadPoolExecutor, Future
 
 
 @dataclass
@@ -13,18 +14,6 @@ class RealSenseConfig:
     depth_fps: int = 60
     rgb_fps: int = 60  # We have to use 60fps to ensure depth 90fps
     laser_power: int = 360
-
-
-@dataclass
-class FramesNumber:
-    depth: int = 0
-    infrared: int = 0
-    color: int = 0
-
-
-class FramesMix(Enum):
-    DEPTH_INFRARED = 0
-    DEPTH_COLOR = 1
 
 
 class RealSenseHandler:
@@ -40,13 +29,7 @@ class RealSenseHandler:
             rs.format.z16,
             cam_config.depth_fps,
         )
-        # config.enable_stream(
-        #     rs.stream.infrared,
-        #     cam_config.width,
-        #     cam_config.height,
-        #     rs.format.y8,
-        #     cam_config.depth_fps,
-        # )
+
         config.enable_stream(
             rs.stream.color,
             cam_config.width,
@@ -54,9 +37,10 @@ class RealSenseHandler:
             rs.format.bgr8,
             cam_config.rgb_fps,
         )
-
         self.pipeline = rs.pipeline()
+        self.started = False
         self.profile = self.pipeline.start(config)
+        self.started = True
 
         self.depth_sensor = self.profile.get_device().first_depth_sensor()
         self.depth_sensor.set_option(rs.option.laser_power, cam_config.laser_power)
@@ -76,35 +60,26 @@ class RealSenseHandler:
             .as_video_stream_profile()
             .get_intrinsics()
         )
-        # self.ir_intrinsics = (
-        #     self.profile.get_stream(rs.stream.infrared)
-        #     .as_video_stream_profile()
-        #     .get_intrinsics()
-        # )
 
-        self.frames_number: FramesNumber = FramesNumber()
         self.last_time: int = time.time_ns()
         self.align = rs.align(rs.stream.color)
+        self.align_executor = ThreadPoolExecutor(max_workers=1)
 
     def __del__(self):
-        self.pipeline.stop()
+        if self.started:
+            self.pipeline.stop()
 
-    def get_frames(self) -> tuple[int, rs.depth_frame, rs.frame]:
+    def get_frames(self, use_future=True) -> tuple[int, Future[rs.composite_frame], rs.frame]:
         """Get frames from RealSense camera"""
-        # TO DO: Add a check for repeated depth_frame, current depth frame must be different from the last frame
+
         frames = self.pipeline.wait_for_frames()
+        self.last_time = time.time_ns()
 
         color_frame = frames.get_color_frame()
-        repeated_color_frame: bool = (
-            self.frames_number.color == color_frame.get_frame_number()
-        )
+        if use_future:
+            aligned_frames_future = self.align_executor.submit(self.align.process, frames)
+            return self.last_time, aligned_frames_future, color_frame
+        else:
+            aligned_frames = self.align.process(frames)
+            return self.last_time, aligned_frames, color_frame
 
-        self.frames_number.color = color_frame.get_frame_number()
-        # Improvement point: Instead of align, we could only transform the color pixels into depth pixels
-        aligned_frames = self.align.process(frames)
-        depth_frame = aligned_frames.get_depth_frame()
-        second_frame = aligned_frames.first(rs.stream.color)
-
-        self.frames_number.depth = depth_frame.get_frame_number()
-        self.last_time = time.time_ns()
-        return self.last_time, depth_frame, second_frame
