@@ -6,7 +6,7 @@ It converts the list of DetectedObject into a list of ObjectWithPosition
 
 from dataclasses import dataclass, field
 from realsense_handler import rs
-from object_detector import DetectedObject, ObjectType
+from object_detector import DetectedObject, ObjectType, Source
 import numpy as np
 
 
@@ -14,6 +14,7 @@ import numpy as np
 class ObjectWithPosition:
     """Dataclass to store object with position"""
 
+    source: Source
     object_type: ObjectType
     position: np.ndarray = field(default_factory= lambda: np.zeros((1, 3)))
     variance: np.ndarray = field(default_factory= lambda: np.zeros((1, 3)))
@@ -94,6 +95,7 @@ class ObjectPoseEstimator:
             position = position[:3].flatten()
 
         return ObjectWithPosition(
+            detected_object.source,
             detected_object.type,
             position,
             self._compute_variance(position),

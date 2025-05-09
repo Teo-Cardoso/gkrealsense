@@ -62,6 +62,7 @@ class ThreeCamerasHandler:
         world_position = world_position[:3].flatten()
 
         return ObjectWithPosition(
+            detected_object.source,
             detected_object.type,
             world_position,
             np.array([3 * [0.4 / detected_object.confidence]])

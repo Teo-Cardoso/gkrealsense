@@ -7,10 +7,8 @@ It can detect objects of the following types: ball, red, blue, robot, person.
 It returns a list of DetectedObject.
 """
 
-import time
 import ultralytics.engine
 import ultralytics.engine.results
-from realsense_handler import FramesMix
 
 import ultralytics
 import numpy as np

@@ -1,12 +1,12 @@
+from object_detector import ObjectType, Source
+from object_pose_estimator import ObjectWithPosition
+
 import math
 import time
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from filterpy.kalman import KalmanFilter
-from object_detector import ObjectType
-from object_pose_estimator import ObjectWithPosition
 from scipy.optimize import linear_sum_assignment
-
 
 
 @dataclass(slots=True)
@@ -23,6 +23,7 @@ class KalmanFilterStatus:
     cycles_updates: int = 0  # Number of cycles this object has been updated in sequence
     last_update_timestamp: int = 0
     cycles: int = 1  # Number of cycle this object exist
+    observed_by: list[Source] = field(default_factory= lambda: [])  # List of cameras that observed this object
 
     def update_trustiness(self, trustiness_coefficient: float):
         MAX_DELTA = 0.07
@@ -50,6 +51,7 @@ class ObjectTracker:
     def track(
         self,
         input_candidates: list[tuple[int, list[ObjectWithPosition]]],
+        sources: list[Source],
     ) -> list[TrackedObject]:
         # 0. Reset the status of the filters
         for tracked_object in self.tracked_objects:
@@ -65,6 +67,10 @@ class ObjectTracker:
         # Update trustiness for objects that were not updated in the last cycle
         to_delete = []
         for index, tracked_object in enumerate(self.tracked_objects):
+            if not any(source in tracked_object.kalmanFilterStatus.observed_by for source in sources):
+                # The object was not possible to be detected by any of the sources
+                continue
+
             if not tracked_object.kalmanFilterStatus.updated_in_the_last_cycle:
                 tracked_object.kalmanFilterStatus.update_trustiness(-1)
                 tracked_object.kalmanFilterStatus.cycles_without_update += 1
@@ -151,6 +157,7 @@ class ObjectTracker:
                     association_weight=cost_matrix[associated_object_index, measurement_association_index],
                     position=measurements[measurement_association_index].position,
                     variance=measurements[measurement_association_index].variance,
+                    source=measurements[measurement_association_index].source,
                     timestamp=timestamp,
                 )
                 
@@ -214,6 +221,7 @@ class ObjectTracker:
         association_weight: float,
         position: np.ndarray,
         variance: np.ndarray,
+        source: Source,
         timestamp: int,
     ) -> None:
 
@@ -230,9 +238,13 @@ class ObjectTracker:
             trustiness_coefficient
         )
 
-        self.tracked_objects[
-            association_index
-        ].kalmanFilterStatus.updated_in_the_last_cycle = True
+        if self.tracked_objects[association_index].kalmanFilterStatus.updated_in_the_last_cycle:
+            self.tracked_objects[association_index].kalmanFilterStatus.observed_by.append(source)
+        else:
+            self.tracked_objects[association_index].kalmanFilterStatus.observed_by = [source]
+            self.tracked_objects[
+                association_index
+            ].kalmanFilterStatus.updated_in_the_last_cycle = True
 
         self.tracked_objects[
             association_index
@@ -300,6 +312,7 @@ class ObjectTracker:
             trustiness=trustiness,
             last_update_timestamp=timestamp,
             updated_in_the_last_cycle=True,
+            observed_by=[object.source],
         )
 
         # 3. Create the TrackedObject
@@ -379,42 +392,46 @@ if __name__ == "__main__":
     start_perf_counter = time.perf_counter()
     first_detection: list[ObjectWithPosition] = [
         ObjectWithPosition(
-            ObjectType.BALL, np.array([[1, 2, 3]]), np.array([[0.1, 0.1, 0.1]])
+            Source.REALSENSE,
+            ObjectType.BALL, np.array([1, 2, 3]), np.array([[0.1, 0.1, 0.1]])
         ),
     ]
 
     start_time = time.time_ns()
-    tracker.track([(start_time, first_detection)])
+    tracker.track([(start_time, first_detection)], [Source.REALSENSE])
 
     second_detection: list[ObjectWithPosition] = [
         ObjectWithPosition(
-            ObjectType.BALL, np.array([[1.2, 2.2, 3.3]]), np.array([[0.1, 0.1, 0.1]])
+            Source.REALSENSE,
+            ObjectType.BALL, np.array([1.2, 2.2, 3.3]), np.array([[0.1, 0.1, 0.1]])
         ),
     ]
 
-    second_time = start_time + int(1 * 1e9)
-    result = tracker.track([(second_time, second_detection)])
+    second_time = start_time + int(1 * 1e8)
+    result = tracker.track([(second_time, second_detection)], [Source.REALSENSE])
 
     third_detection: list[ObjectWithPosition] = [
         ObjectWithPosition(
+            Source.REALSENSE,
             ObjectType.BALL,
-            np.array([[1.43, 2.4, 3.6]]),
+            np.array([1.43, 2.4, 3.6]),
             np.array([[0.1, 0.1, 0.1]]),
         ),
     ]
 
-    third_time = second_time + int(1 * 1e9)
-    tracker.track([(third_time, third_detection)])
+    third_time = second_time + int(1 * 1e8)
+    tracker.track([(third_time, third_detection)], [Source.REALSENSE])
 
     forth_detection: list[ObjectWithPosition] = [
         ObjectWithPosition(
+            Source.REALSENSE,
             ObjectType.BALL,
-            np.array([[1.43, 2.8, 3.6]]),
+            np.array([1.43, 2.8, 3.6]),
             np.array([[0.1, 0.1, 0.1]]),
         ),
     ]
 
-    forth_time = third_time + int(1 * 1e9)
-    result = tracker.track([(forth_time, forth_detection)])
+    forth_time = third_time + int(1 * 1e8)
+    result = tracker.track([(forth_time, forth_detection)], [Source.REALSENSE])
     print(f"Time: {1000 * (time.perf_counter() - start_perf_counter)} ms")
     print(result)
