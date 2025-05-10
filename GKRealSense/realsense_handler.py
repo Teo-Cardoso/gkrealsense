@@ -4,7 +4,6 @@ import pyrealsense2 as rs
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
 
-
 @dataclass
 class RealSenseConfig:
     """Dataclass to store RealSense configuration"""
@@ -69,6 +68,10 @@ class RealSenseHandler:
         if self.started:
             self.pipeline.stop()
 
+    def lazy_align(self, frames) -> rs.composite_frame:
+        time.sleep(5 * 1e-3) # Sleep for 5ms to allow the program start the gpu prediction
+        return self.align.process(frames)
+
     def get_frames(self, use_future=True) -> tuple[int, Future[rs.composite_frame], rs.frame]:
         """Get frames from RealSense camera"""
 
@@ -77,7 +80,7 @@ class RealSenseHandler:
 
         color_frame = frames.get_color_frame()
         if use_future:
-            aligned_frames_future = self.align_executor.submit(self.align.process, frames)
+            aligned_frames_future = self.align_executor.submit(self.lazy_align, frames)
             return self.last_time, aligned_frames_future, color_frame
         else:
             aligned_frames = self.align.process(frames)

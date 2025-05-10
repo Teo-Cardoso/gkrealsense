@@ -1,10 +1,9 @@
-from realsense_handler import RealSenseHandler, RealSenseConfig, FramesMix
+from realsense_handler import RealSenseHandler, RealSenseConfig
 from object_detector import ObjectDetector, DetectedObject, ObjectType, Source
 from object_pose_estimator import ObjectPoseEstimator, ObjectWithPosition
 from object_tracker import ObjectTracker
 from ball_classifier import BallClassifier, BallClassifiedObject
 from behavior_control import ActionStatus, BehaviorControl, BahaviorControlAction
-import field_visualizer
 
 import cv2
 import numpy as np
@@ -18,7 +17,7 @@ except Exception as e:
 def main():
     SAVE_DATA = False
     VISUALIZE_FIELD = False
-    VISUALIZE_CAMS = False
+    VISUALIZE_CAMS = False       
 
     realsense = RealSenseHandler(RealSenseConfig())
     obj_detector = ObjectDetector(
@@ -38,6 +37,7 @@ def main():
     behavior_controller = BehaviorControl()
 
     if VISUALIZE_FIELD:
+        import field_visualizer
         visualize_engine = field_visualizer.Engine()
 
     threecameras = threecameras_handler.ThreeCamerasHandler(angles_file="/home/robot3/MSL_2025/Detection-Tracking/Angulos.txt", distances_file="/home/robot3/MSL_2025/Detection-Tracking/Distancias-claud.txt")
@@ -64,21 +64,21 @@ def main():
         image_sources = []
         images_sources_ids = []
 
+        waiting_threecameras_start = time.perf_counter()
+        threecamera_timestamp, threecameras_frames = threecameras.get_images()
+
+        image_sources.extend(threecameras_frames)
+        images_sources_ids.extend([Source.CAM_1, Source.CAM_2, Source.CAM_3])
+        average_times["waiting_threecameras"] += time.perf_counter() - waiting_threecameras_start
+
         waiting_realsense_start = time.perf_counter()
         if realsense_switch == 0:
             timestamp, future_depth_frame, second_frame = realsense.get_frames()
             second_image = np.asanyarray(second_frame.get_data())
   
-            image_sources.append(second_image)
-            images_sources_ids.append(Source.REALSENSE)
-            average_times["waiting_realsense"] += time.perf_counter() - waiting_realsense_start
-
-        waiting_threecameras_start = time.perf_counter()
-        threecamera_timestamp, threecameras_frames = threecameras.get_images()
-        average_times["waiting_threecameras"] += time.perf_counter() - waiting_threecameras_start
-
-        image_sources.extend(threecameras_frames)
-        images_sources_ids.extend([Source.CAM_1, Source.CAM_2, Source.CAM_3])
+            image_sources.insert(0, second_image)
+            images_sources_ids.insert(0, Source.REALSENSE)
+        average_times["waiting_realsense"] += time.perf_counter() - waiting_realsense_start
 
         detect_loop_start = time.perf_counter()
         realsense_result, threecamera_result = obj_detector.detect(image_sources, sources_id=images_sources_ids)
@@ -98,10 +98,11 @@ def main():
 
         measurements.append((threecamera_timestamp, threecamera_result_pose))
         measurements.sort(key=lambda x: x[0])
+        
         average_times["getposition"] += time.perf_counter() - getposition_loop_start
 
         track_loop_start = time.perf_counter()
-        track_result = obj_tracker.track(measurements)
+        track_result = obj_tracker.track(measurements, sources=images_sources_ids)
         average_times["track"] += time.perf_counter() - track_loop_start
 
         classify_loop_start = time.perf_counter()

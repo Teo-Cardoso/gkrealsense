@@ -32,7 +32,8 @@ class ThreeCamerasHandler:
         metadata, frames = self.ipc.receive_image()
         while metadata.timestamp == self.last_timestamp:
             metadata, frames = self.ipc.receive_image()
-
+        
+        self.last_timestamp = metadata.timestamp
         return metadata.timestamp, (frames[0][:, 0:640], frames[0][:, 640:1280], frames[0][:, 1280:1920])
 
     def _map_detected_object_to_object_with_position(
