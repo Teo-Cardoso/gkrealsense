@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
+import math
 
 import numpy as np
 from object_detector import ObjectType
@@ -36,6 +37,7 @@ class BallClassificationProperties:
     time_to_goal: float = float("inf")
     distance_to_goal: float = float("inf")
     crossing_point: np.ndarray = field(default_factory = lambda: np.array([float("inf"), float("inf"), float("inf")]))
+    going_start_point: np.ndarray = field(default_factory = lambda: np.array([float("inf"), float("inf"), float("inf")]))
 
 @dataclass(slots=True)
 class BallClassifiedObject:
@@ -53,6 +55,7 @@ class BallClassifier:
     VX_THRESHOLD_KICK = 2.0
     TIME_TO_GOAL_THRESHOLD = 1.0
     DISTANCE_TO_GOAL_THRESHOLD = 0.5
+    DISTANCE_GOING_THRESHOLD = 1.0
 
     assert VX_THRESHOLD_COMING >= 0.01, "VX_THRESHOLD_COMING must be greater than 0.01"
 
@@ -134,15 +137,32 @@ class BallClassifier:
             self.closest_ball = (ball.object_id, ball.properties.distance_to_goal)
 
         if ball.dynamics.velocity[0] > self.VX_THRESHOLD_GOING:
+            movement_angle = abs(math.atan2(ball.dynamics.velocity[1], ball.dynamics.velocity[0]))
+            if movement_angle < math.radians(135) and movement_angle > math.radians(45):
+                return
+
+            if ball.properties.going_start_point[0] == float("inf"):
+                ball.properties.going_start_point = ball.dynamics.position
+
+            going_distance = np.linalg.norm(ball.dynamics.position[:2] - ball.properties.going_start_point[:2])
+            if going_distance < self.DISTANCE_GOING_THRESHOLD:
+                return
+
             ball.properties.cycles_going = min(10, ball.properties.cycles_going + 1)
-            ball.properties.cycles_coming = 0
-            ball.properties.time_to_goal = float("inf")
-            ball.properties.crossing_point = np.array([float("inf"), float("inf"), float("inf")])
+            ball.properties.cycles_coming = math.floor(ball.properties.cycles_coming / 2)
+
+            if ball.properties.cycles_going > ball.properties.cycles_coming:
+                ball.properties.time_to_goal = float("inf")
+                ball.properties.crossing_point = np.array([float("inf"), float("inf"), float("inf")])
+
             return
         
+        # Clean up going start point
+        ball.properties.going_start_point = np.array([float("inf"), float("inf"), float("inf")])
+
         if ball.dynamics.velocity[0] < -self.VX_THRESHOLD_COMING:
             ball.properties.cycles_coming = min(10, ball.properties.cycles_coming + 1)
-            ball.properties.cycles_going = 0
+            ball.properties.cycles_going = math.floor(ball.properties.cycles_going / 3)
             
             # Compute crossing point
             relative_position = ball.dynamics.position - self.goal_center
@@ -167,9 +187,11 @@ class BallClassifier:
 
         ball.properties.cycles_going = max(0, ball.properties.cycles_going - 1)
         ball.properties.cycles_coming = max(0, ball.properties.cycles_coming - 1)
-        ball.properties.time_to_goal = float("inf")
-        ball.properties.crossing_point = np.array([float("inf"), float("inf"), float("inf")])
-        ball.properties.distance_to_goal = float("inf")        
+
+        if ball.properties.cycles_coming == 0 and ball.properties.cycles_going == 0:
+            ball.properties.time_to_goal = float("inf")
+            ball.properties.crossing_point = np.array([float("inf"), float("inf"), float("inf")])
+            ball.properties.distance_to_goal = float("inf")        
 
     def _classify_ball(self, ball: BallClassifiedObject) -> BallClass:
         """
@@ -179,7 +201,7 @@ class BallClassifier:
         if ball.properties.cycles_coming == 0 and ball.properties.cycles_going == 0:
             return BallClass.STOPPED
 
-        if ball.properties.cycles_going > 0:
+        if ball.properties.cycles_going > ball.properties.cycles_coming and ball.properties.cycles_going > 0:
             return BallClass.GOING
         
         if ball.properties.cycles_coming > 0:

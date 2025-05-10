@@ -6,7 +6,7 @@ It converts the list of DetectedObject into a list of ObjectWithPosition
 
 from dataclasses import dataclass, field
 from realsense_handler import rs
-from object_detector import DetectedObject, ObjectType
+from object_detector import DetectedObject, ObjectType, Source
 import numpy as np
 
 
@@ -14,6 +14,7 @@ import numpy as np
 class ObjectWithPosition:
     """Dataclass to store object with position"""
 
+    source: Source
     object_type: ObjectType
     position: np.ndarray = field(default_factory= lambda: np.zeros((1, 3)))
     variance: np.ndarray = field(default_factory= lambda: np.zeros((1, 3)))
@@ -34,14 +35,19 @@ class ObjectPoseEstimator:
 
     def _compute_variance(self, position: np.ndarray) -> np.ndarray:
         """Compute variance of the position"""
-        return np.array([[min(0.15 * position[0], 0.65), 0.25, 0.25]])
+        if position[0] is None:
+            return np.array([[0.0, 0.0, 0.0]])
+
+        value = min(0.035 * position[0]**2, 0.65)
+        return np.array([[value, value, value]])
 
     def _map_detected_object_to_object_with_position(
         self, camera_to_world: np.ndarray, depth_frame: rs.depth_frame, detected_object: DetectedObject
     ) -> ObjectWithPosition:
         # Improvement point: get the average from the pixels in the neighbourhood of the center point
         x_point = int((detected_object.box[0] + detected_object.box[2]) / 2)
-        y_point = int((detected_object.box[1] + detected_object.box[3]) / 2)
+        height = int(detected_object.box[3] - detected_object.box[1])
+        y_point = int(int(detected_object.box[1] + 3 * height / 4))
         neighbourhood: int = 1
 
         distances: list[list[float]] = [[], [], []]
@@ -81,10 +87,15 @@ class ObjectPoseEstimator:
             y_distance = np.mean(distances[1])
             z_distance = np.mean(distances[2])
 
-        position = np.array([[x_distance, y_distance, z_distance, 1]]).transpose()
-        position = np.dot(camera_to_world, position)
-        position = position[:3].flatten()
+        if z_distance <= 0.0:
+            position = np.array([None, None, None])
+        else:
+            position = np.array([[x_distance, y_distance, z_distance, 1]]).transpose()
+            position = np.dot(camera_to_world, position)
+            position = position[:3].flatten()
+
         return ObjectWithPosition(
+            detected_object.source,
             detected_object.type,
             position,
             self._compute_variance(position),
