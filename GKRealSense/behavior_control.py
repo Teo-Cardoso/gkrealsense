@@ -17,7 +17,7 @@ class Arm(Enum):
     UP = 3,
 
 @dataclass(slots=True, frozen=True)
-class BahaviorControlAction:
+class BehaviorControlAction:
     """
     Class representing the action to be taken by the robot.
     """
@@ -67,13 +67,13 @@ class BehaviorControl:
         # Placeholder for actual computation
         return self._compute_target_predefence(ball)
     
-    def control(self, closest_ball: BallClassifiedObject) -> BahaviorControlAction:
+    def control(self, closest_ball: BallClassifiedObject) -> BehaviorControlAction:
         """
         Control the robot based on the ball candidates.
         """
 
         if closest_ball is None:
-            return BahaviorControlAction(ActionStatus.IDLE, (0.0, 0.0), Arm.NONE)
+            return BehaviorControlAction(ActionStatus.IDLE, (0.0, 0.0), Arm.NONE)
         
         action = self.classification_mapping[closest_ball.classification]
         match action:
@@ -87,4 +87,4 @@ class BehaviorControl:
                 target = self._compute_target_defence(closest_ball)
                 arm = Arm.NONE
 
-        return BahaviorControlAction(action, target, arm)
+        return BehaviorControlAction(action, target, arm)
